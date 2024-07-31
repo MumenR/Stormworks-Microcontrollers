@@ -1,0 +1,125 @@
+{
+	"folders": [
+		{
+			"name": "autopilot V1",
+			"path": "products/Logic/autopilot V1"
+		},
+		{
+			"name": "AVE",
+			"path": "products/Logic/AVE"
+		},
+		{
+			"name": "Ballistic Computer V1",
+			"path": "products/Logic/Ballistic Computer V1"
+		},
+		{
+			"name": "Battery Remaining V1",
+			"path": "products/Logic/Battery Remaining V1"
+		},
+		{
+			"name": "Cam Laser",
+			"path": "products/Logic/Cam Laser"
+		},
+		{
+			"name": "Cam Stabilized",
+			"path": "products/Logic/Cam Stabilized"
+		},
+		{
+			"name": "Configurable HUD v3.3",
+			"path": "products/Logic/Configurable HUD v3.3"
+		},
+		{
+			"name": "Delta Fuel",
+			"path": "products/Logic/Delta Fuel"
+		},
+		{
+			"name": "depth survey'",
+			"path": "products/Logic/depth survey'"
+		},
+		{
+			"name": "digital clock",
+			"path": "products/Logic/digital clock"
+		},
+		{
+			"name": "electronic bulletin board",
+			"path": "products/Logic/electronic bulletin board"
+		},
+		{
+			"name": "FCS Type 2",
+			"path": "products/Logic/FCS Type 2"
+		},
+		{
+			"name": "FCS Type 3",
+			"path": "products/Logic/FCS Type 3"
+		},
+		{
+			"name": "ICBM Type 0",
+			"path": "products/Logic/ICBM Type 0"
+		},
+		{
+			"name": "Oxygen concentration meter V1",
+			"path": "products/Logic/Oxygen concentration meter V1"
+		},
+		{
+			"name": "Simple map V1",
+			"path": "products/Logic/Simple map V1"
+		},
+		{
+			"name": "SM Type 1",
+			"path": "products/Logic/SM Type 1"
+		},
+		{
+			"name": "SM Type 2",
+			"path": "products/Logic/SM Type 2"
+		},
+		{
+			"name": "Spd and Alt display V2",
+			"path": "products/Logic/Spd and Alt display V2"
+		},
+		{
+			"name": "Sub Hatch Controller V1",
+			"path": "products/Logic/Sub Hatch Controller V1"
+		},
+		{
+			"name": "Sub Stabilizer V1",
+			"path": "products/Logic/Sub Stabilizer V1"
+		},
+		{
+			"name": "test",
+			"path": "products/Logic/test"
+		},
+		{
+			"name": "Test Logic",
+			"path": "products/Logic/Test Logic"
+		},
+		{
+			"name": "TP Type 1",
+			"path": "products/Logic/TP Type 1"
+		},
+		{
+			"name": "libs",
+			"path": "libs"
+		}
+	],
+	"settings": {
+		"lifeboatapi.stormworks.minimizer.reduceAllWhitespace": true,
+		"lifeboatapi.stormworks.libs.libraryPaths": [
+			"C:\\Stormworks\\Microcontrollers\\libs\\my library"
+		],
+		"lifeboatapi.stormworks.user.authorName": "MumenR",
+		"lifeboatapi.stormworks.user.workshopLink": "https://steamcommunity.com/profiles/76561199060549727/myworkshopfiles/",
+		"Lua.completion.enable": true,
+		"lifeboatapi.stormworks.minimizer.skipCombinedFileOutput": false,
+		"Lua.codeLens.enable": false,
+		"Lua.addonManager.enable": false,
+		"Lua.hint.enable": false,
+		"Lua.hint.paramType": false,
+		"Lua.hint.setType": false,
+		"Lua.hint.await": false,
+		"Lua.hint.arrayIndex": "Auto",
+		"Lua.hint.paramName": "Disable",
+		"workbench.activityBar.location": "default",
+		"workbench.activityBar.iconClickBehavior": "toggle",
+		"workbench.tree.enableStickyScroll": true
+	}
+}
