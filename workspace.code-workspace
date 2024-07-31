@@ -120,6 +120,7 @@
 		"Lua.hint.paramName": "Disable",
 		"workbench.activityBar.location": "default",
 		"workbench.activityBar.iconClickBehavior": "toggle",
-		"workbench.tree.enableStickyScroll": true
+		"workbench.tree.enableStickyScroll": true,
+		"lifeboatapi.stormworks.user.githubLink": "https://github.com/MumenR/Stormworks-Microcontrollers"
 	}
 }
