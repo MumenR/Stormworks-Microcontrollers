@@ -258,10 +258,10 @@ function onTick()
     mode = INN(14)
     gain = INN(15)
     sonar_x = INN(16)
-    sonar_y = INN(17)   
-    
-    active_radar_lock_on = INN(22)
-    active_radar = INB(4)
+    sonar_y = INN(17)
+
+    active_sonar_lock_on = (INN(18) == 1)
+    active_sonar = INB(4)
 
     world_x = physics_x
     world_y = physics_z
@@ -308,9 +308,9 @@ function onTick()
             end
         --終末誘導
         elseif step3 == false then
-            radar_target_distance = distance(radar_x, radar_y, radar_z, world_x, world_y, world_z)
-            if active_radar and target_distance < 500 and active_radar_lock_on == 1 then
-                destination_x, destination_y, destination_z = cal_collision_location(radar_x, radar_y, radar_z, radar_vx, radar_vy, radar_vz, world_x, world_y, world_z, missile_v, radar_target_distance, 0)
+            sonar_target_distance = distance(sonar_x, sonar_y, sonar_z, world_x, world_y, world_z)
+            if active_sonar and target_distance < 500 and active_sonar_lock_on == 1 then
+                destination_x, destination_y, destination_z = cal_collision_location(sonar_x, sonar_y, sonar_z, sonar_vx, sonar_vy, sonar_vz, world_x, world_y, world_z, missile_v, sonar_target_distance, 0)
             else
                 destination_x, destination_y, destination_z = cal_collision_location(target_x, target_y, target_z, target_vx, target_vy, target_vz, world_x, world_y, world_z, missile_v, target_distance, 2)
             end
@@ -339,6 +339,6 @@ function onTick()
     OUB(2, step1)
     OUB(3, step2)
     OUB(4, step3)
-    OUB(5, active_radar)
-    OUB(7, active_radar_lock_on == 1)
+    OUB(5, active_sonar)
+    OUB(7, active_sonar_lock_on == 1)
 end

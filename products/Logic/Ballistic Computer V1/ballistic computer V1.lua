@@ -189,7 +189,6 @@ function CalculationStatic(vdis, hdis)
 end
 
 function CalculationDynamic(CVx, CVy, CValt, TVx, TVy, TValt, Xdis, Ydis, AltDis)
-	
 	Vx = TVx - CVx
 	Vy = TVy - CVy
 	Valt = TValt - CValt
@@ -214,8 +213,7 @@ function CalculationDynamic(CVx, CVy, CValt, TVx, TVy, TValt, Xdis, Ydis, AltDis
 	end
 	
 	RetDirection = math.atan(Xtemp, Ytemp) / (2*pi)
-	RetElevation = CalculationStatic(Vdis, Hdis, k) / (2*pi)
-	return
+	RetElevation = CalculationStatic(Vdis, Hdis) / (2*pi)
 end
 
 function Range(Cx, Cy, Cz, TarX, TarY, TarZ, TarVx, TarVy, TarVz)
