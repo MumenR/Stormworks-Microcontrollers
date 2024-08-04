@@ -147,46 +147,6 @@ function distance(x, y, z, a, b, c)
     return math.sqrt((x - a)^2 + (y - b)^2 + (z - c)^2)
 end
 
---衝突位置予測
-function cal_collision_location(target_x, target_y, target_z, target_vx, target_vy, target_vz, world_x, world_y, world_z, missile_v, distance, delay)
-    target_x, target_y, target_z = cal_future_position(target_x, target_y, target_z, target_vx, target_vy, target_vz, delay)
-    local target_v, theta, tick, tick_plus, tick_minus, future_x, future_y, future_z
-    local vector_x, vector_y, vector_z = world_x - target_x, world_y - target_y, world_z - target_z 
-    theta = math.acos((target_vx*vector_x + target_vy*vector_y + target_vz*vector_z)/math.sqrt((target_vx^2 + target_vy^2 + target_vz^2)*(vector_x^2 + vector_y^2 + vector_z)))
-    target_v = math.sqrt(target_vx^2 + target_vy^2 + target_vz^2)
-    if target_v == missile_v then
-        if math.cos(theta) > 0 then
-            tick = distance/(missile_v*math.cos(theta))
-        else
-            tick = 0
-        end
-    else
-        if missile_v/target_v > math.abs(math.sin(theta)) then
-            tick_plus = distance*(target_v*math.cos(theta) + math.sqrt(missile_v^2 - (target_v^2)*(math.sin(theta)^2)))/(target_v^2 - missile_v^2)
-            tick_minus = distance*(target_v*math.cos(theta) - math.sqrt(missile_v^2 - (target_v^2)*(math.sin(theta)^2)))/(target_v^2 - missile_v^2)
-            if tick_plus > 0 and tick_minus > 0 then
-                if tick_plus > tick_minus then
-                    tick = tick_minus
-                else
-                    tick = tick_plus
-                end
-            elseif tick_plus > 0 and tick_minus <= 0 then
-                tick = tick_plus
-            elseif tick_minus > 0 and tick_plus <= 0 then
-                tick = tick_minus
-            else
-                tick = 0
-            end
-        elseif missile_v/target_v == math.abs(math.sin(theta)) then
-            tick = distance*target_v*math.cos(theta)/(target_v^2 - missile_v^2)
-        else
-            tick = 0
-        end
-    end
-    future_x, future_y, future_z = cal_future_position(target_x, target_y, target_z, target_vx, target_vy, target_vz, tick)
-    return future_x, future_y, future_z
-end
-
 --指定高度巡航
 --delay(m)離れた点に向かって飛ぶ
 function cruise(target_x, target_y, world_x, world_y, delay)
@@ -257,11 +217,11 @@ function onTick()
     abs_v = INN(13)/60
     mode = INN(14)
     gain = INN(15)
-    sonar_x = INN(16)
-    sonar_y = INN(17)
+    sonar_vx = INN(16)
+    sonar_vz = INN(17)
 
-    active_sonar_lock_on = (INN(18) == 1)
-    active_sonar = INB(4)
+    sonar_lock_on = (INN(18) == 1)
+    sonar = INB(4)
 
     world_x = physics_x
     world_y = physics_z
@@ -275,42 +235,41 @@ function onTick()
         --最低高度まで上昇
         if step1 == false then
             destination_x, destination_y, destination_z = world_x, world_y, 1000
-            if world_z >= 25 and world_z > launch_z + 25 then
+            if  world_z > launch_z + 25 then
                 step1 = true
             end
         --巡航
         elseif step2 == false then
             cruise_target_x, cruise_target_y, cruise_target_z = cal_collision_location(target_x, target_y, target_z, target_vx, target_vy, target_vz, world_x, world_y, world_z, missile_v, target_distance, 2)
-            --ダイレクトアタック
-            if mode == 1 then
-                step2 = true
-            --ノーマル巡航
-            elseif mode == 2 then
-                destination_x, destination_y = cruise(cruise_target_x, cruise_target_y, world_x, world_y, 300)
-                destination_z = 100 + cruise_target_z
-                if target_distance < 500 then
-                    step2 = true
-                end
-            --トップアタック
-            elseif mode == 3 then
-                destination_x, destination_y = cruise(cruise_target_x, cruise_target_y, world_x, world_y, 300)
-                destination_z = 1000 + cruise_target_z
-                if target_distance < (world_z - target_z)/math.cos(math.pi/9) then
-                    step2 = true
-                end
+
             --シースキミング
-            elseif mode == 4 then
-                destination_x, destination_y = cruise(cruise_target_x, cruise_target_y, world_x, world_y, 200)
-                destination_z = 5
-                if target_distance < 200 then
-                    step2 = true
-                end
+            destination_x, destination_y = cruise(cruise_target_x, cruise_target_y, world_x, world_y, 200)
+            destination_z = 5
+
+            --座標誘導
+            if mode == 1 and target_distance < 2000 then
+                step2 = true
+            --方位角指定発射
+            elseif mode == 2 then
+                step2 = true
+            end
+        
+        elseif step3 == false then
+            cruise_target_x, cruise_target_y, cruise_target_z = cal_collision_location(target_x, target_y, target_z, target_vx, target_vy, target_vz, world_x, world_y, world_z, missile_v, target_distance, 2)
+
+            --水中巡航
+            destination_x, destination_y = cruise(cruise_target_x, cruise_target_y, world_x, world_y, 200)
+            destination_z = -5
+
+            if mode == 1 and target_distance < 1000  then
+                step3 = true
+            elseif mode == 2 and sonar_lock_on and sonar then
+                step3 = true
             end
         --終末誘導
-        elseif step3 == false then
-            sonar_target_distance = distance(sonar_x, sonar_y, sonar_z, world_x, world_y, world_z)
-            if active_sonar and target_distance < 500 and active_sonar_lock_on == 1 then
-                destination_x, destination_y, destination_z = cal_collision_location(sonar_x, sonar_y, sonar_z, sonar_vx, sonar_vy, sonar_vz, world_x, world_y, world_z, missile_v, sonar_target_distance, 0)
+        else
+            if sonar then
+
             else
                 destination_x, destination_y, destination_z = cal_collision_location(target_x, target_y, target_z, target_vx, target_vy, target_vz, world_x, world_y, world_z, missile_v, target_distance, 2)
             end
@@ -339,6 +298,6 @@ function onTick()
     OUB(2, step1)
     OUB(3, step2)
     OUB(4, step3)
-    OUB(5, active_sonar)
-    OUB(7, active_sonar_lock_on == 1)
+    OUB(5, sonar)
+    OUB(7, sonar_lock_on == 1)
 end

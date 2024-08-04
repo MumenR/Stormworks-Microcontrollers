@@ -37,11 +37,11 @@
     ],
     "Lua.runtime.pathStrict": true,
     "Lua.workspace.library": [
-        "c:/Users/PC_User/iCloudDrive/Stormworks/Microcontrollers/products/Logic/Spd and Alt display V2/",
-        "c:/Users/PC_User/.vscode/extensions/nameouschangey.lifeboatapi-0.0.33/assets/lua/Common/",
-        "c:/Users/PC_User/.vscode/extensions/nameouschangey.lifeboatapi-0.0.33/assets/lua/Microcontroller/",
+        "c:/Users/yosuk/iCloudDrive/Stormworks/Microcontrollers/products/Logic/Spd and Alt display V2/",
+        "c:/Users/yosuk/.vscode/extensions/nameouschangey.lifeboatapi-0.0.33/assets/lua/Common/",
+        "c:/Users/yosuk/.vscode/extensions/nameouschangey.lifeboatapi-0.0.33/assets/lua/Microcontroller/",
         "C:/Users/yosuk/iCloudDrive/ドキュメント/Stormworks/Microcontrollers/products/Logic/",
-        "c:/Users/PC_User/iCloudDrive/Stormworks/Microcontrollers/products/Logic/Spd and Alt display V2/_build/libs/"
+        "c:/Users/yosuk/iCloudDrive/Stormworks/Microcontrollers/products/Logic/Spd and Alt display V2/_build/libs/"
     ],
     "lifeboatapi.stormworks.libs.gitLibraries": [
         {

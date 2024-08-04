@@ -56,7 +56,9 @@ OUB = output.setBool
 
 lock_on = false
 lock_on_x = 0
-lock_on_y = 0
+lock_on_z = 0
+lock_on_x_table = {}
+lock_on_z_table = {}
 
 -- テーブルの中から最小値のインデックスを返す関数
 function find_Min_And_Index(t)
@@ -71,47 +73,118 @@ function find_Min_And_Index(t)
     return minIndex
 end
 
+--y = ax + bを最小二乗法で求める
+function least_squares_method(y)
+    local ave_x, ave_y, Sx2, Sxy = 0, 0, 0, 0
+
+    if #y > 4 then
+        for i = 1, #y do
+            ave_x = ave_x + i 
+            ave_y = ave_y + y[i]
+            Sx2 = Sx2 + (i - ave_x)^2
+            Sxy = Sxy + (i - ave_x)*(y[i] - ave_y)
+        end
+    
+        ave_x = ave_x/#y
+        ave_y = ave_y/#y
+        Sx2 = Sx2/#y
+        Sxy = Sxy/#y
+    
+        a = Sxy/Sx2
+        b = ave_y - a*ave_x
+    elseif #y > 0 then
+        a, b = 0, y[#y]
+    else
+        a, b = 0, 0
+    end
+    
+    return a, b
+end
+
+--比例航法
+function proportional_navigation(target_direction_x, target_direction_z)
+    local target_direction_vx = target_direction_x - last_x
+    local target_direction_vy = target_direction_z - last_z
+    last_x = target_direction_x
+    last_z = target_direction_z
+    return target_direction_vx, target_direction_vy
+end
+
 function onTick()
     sonar_table = {}
-    abs_sonar = {}
+    compare_sonar = {}
 
     sonar_fov = property.getNumber("sonar fov")
+    sample_num = property.getNumber("number of samples")
 
-    --情報読み込み
-    for i = 1, 16 do
-        if INB(i) then
-            table.insert(sonar_table, {INN(2*i - 1), INN(2*i)})
+    mode = INN(29)
+    sonar_on = (INN(30) == 1)
+    target_rotate_x = INN(31)
+    target_rotate_z = INN(32)
 
-            --ロックオン中ならば前回値に最も近いもの、そうでなければ水平方向絶対値が最小のものを選択
-            if lock_on then
-                table.insert(abs_sonar, math.sqrt((INN(2*i - 1) - lock_on_x)^2 + (INN(2*i) - lock_on_y)^2))
-            else
-                table.insert(abs_sonar, math.abs(INN(2*i - 1)))
+    if sonar_on then
+        --情報読み込み
+        for i = 1, 14 do
+            if INB(i) then
+                table.insert(sonar_table, {INN(2*i - 1), INN(2*i)})
+
+                --ロックオン中ならば追跡値との差を比較
+                if lock_on then
+                    table.insert(compare_sonar, math.sqrt((INN(2*i - 1) - lock_on_x)^2 + (INN(2*i) - lock_on_z)^2))
+                --座標指定誘導なら目標座標との差を比較
+                elseif mode == 1 then
+                    table.insert(compare_sonar, math.sqrt((INN(2*i - 1) - target_rotate_x)^2 + (INN(2*i) - target_rotate_z)^2))
+                --方位角指定なら方位との差を比較
+                elseif mode == 2 then
+                    table.insert(compare_sonar, math.abs(INN(2*i - 1) - target_rotate_x))
+                end
             end
         end
-    end
 
-    min_i = find_Min_And_Index(abs_sonar)
+        if #sonar_table >= 1 then
+            min_i = find_Min_And_Index(compare_sonar)
 
-    --設定視野内ならば出力しロックオン
-    if math.abs(sonar_table[min_i][1]) <= sonar_fov/2 then
-        lock_on_x = sonar_table[min_i][1]
-        lock_on_y = sonar_table[min_i][2]
-        lock_on = true
+            --設定視野内ならばテーブルに追加
+            if math.abs(sonar_table[min_i][1]) <= sonar_fov/2 then
+                table.insert(lock_on_x_table, sonar_table[min_i][1])
+                table.insert(lock_on_z_table, sonar_table[min_i][2])
+                lock_on = true
+            else
+                lock_on_x_table, lock_on_z_table = {}, {}
+                lock_on = false
+            end
+        else
+            lock_on_x_table, lock_on_z_table = {}, {}
+            lock_on = false
+        end
+
+        --古いデータを削除
+        if #lock_on_x_table > sample_num then
+            table.remove(lock_on_x_table, 1)
+        end
+        if #lock_on_z_table > sample_num then
+            table.remove(lock_on_z_table, 1)
+        end
+        
+        ax, bx = least_squares_method(lock_on_x_table)
+        az, bz = least_squares_method(lock_on_z_table)
+
+        lock_on_x = ax*(sample_num + 1) + bx
+        lock_on_z = az*(sample_num + 1) + bz
     else
-        lock_on_x, lock_on_y = 0, 0
         lock_on = false
+        ax, az = 0, 0
     end
 
-    --チック遅延対策のため、オン/オフを0 or 1に変換
+    --遅延対策のため、オン/オフを0 or 1に変換
     if lock_on then
         lock_on_num = 1
     else
         lock_on_num = 0
     end
 
-    OUN(1, lock_on_x)
-    OUN(2, lock_on_y)
+    OUN(1, ax)
+    OUN(2, az)
     OUN(3, lock_on_num)
 
 end
