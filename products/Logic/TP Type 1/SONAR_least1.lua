@@ -55,17 +55,16 @@ OUN = output.setNumber
 OUB = output.setBool
 
 lock_on = false
+PN_toggle = false
 lock_on_x = 0
 lock_on_z = 0
+lock_on_x_table = {}
+lock_on_z_table = {}
+t = 0
 
-function clamp(x, min, max)
-    if x >= max then
-        x = max
-    elseif x <= min then
-        x = min
-    end
-    return x
-end
+rawtable = {}
+filtertable = {}
+speedtable = {}
 
 -- テーブルの中から最小値のインデックスを返す関数
 function find_Min_And_Index(t)
@@ -80,39 +79,47 @@ function find_Min_And_Index(t)
     return minIndex
 end
 
-error_pre_x = 0
-error_sum_x = 0
-error_pre_z = 0
-error_sum_z = 0
+function least_squares_method(xy)
+    local a, b, sum_x, sum_y, sum_xy, sum_x2 = 0, 0, 0, 0, 0, 0
 
---PID制御
-function PID(P, I, D, target, current, error_sum, error_pre)
-    local error, error_diff, controll
-    error = target - current
-    error_sum = error_sum + error
-    error_diff = error - error_pre
-    controll = P*error + I*error_sum + D*error_diff
-    return controll, error_sum, error
+    if #xy == 0 then
+        a = 0
+        b = 0
+    elseif #xy <= 5 then
+        a = 0
+        b = xy[#xy]
+    else
+        for i = 1, #xy do
+            sum_x = sum_x + i
+            sum_y = sum_y + xy[i]
+            sum_xy = sum_xy + i*xy[i]
+            sum_x2 = sum_x2 + i^2
+        end
+        a = (#xy*sum_xy - sum_x*sum_y)/(#xy*sum_x2 - sum_x^2)
+        b = (sum_x2*sum_y - sum_xy*sum_x)/(#xy*sum_x2 - sum_x^2)
+    end
+    return a, b
 end
 
 function onTick()
     sonar_table = {}
     compare_sonar = {}
+    target_x = 0
+    target_z = 0
 
-    launch = (INN(29) == 1)
-    terminal_guidance = (INN(30) == 2 or INN(30) == 4)
-    sonar_on = (INN(30) == 3 or INN(30) == 4 )
+    sonar_fov = property.getNumber("sonar fov")
+    sample_num = INN(29)
+
+    sonar_on = (INN(30) == 1)
     target_rotate_x = INN(31)
     target_rotate_z = INN(32)
 
-    sonar_fov = property.getNumber("sonar fov")
-    P = property.getNumber("P")
-    I = property.getNumber("I")
-    D = property.getNumber("D")
+    sonar_pn_x = INN(27)
+    sonar_pn_z = INN(28)
 
     if sonar_on then
         --情報読み込み
-        for i = 1, 14 do
+        for i = 1, 13 do
             if INB(i) then
                 table.insert(sonar_table, {INN(2*i - 1), INN(2*i)})
 
@@ -133,18 +140,59 @@ function onTick()
             --視野範囲外の後方部分を円形とし、計算・判定
             if math.abs(sonar_table[min_i][1]) > sonar_fov/2 and (math.sin(sonar_table[min_i][2]*2*math.pi))^2 + (math.cos(sonar_table[min_i][2]*2*math.pi)*math.sin(sonar_table[min_i][1]*2*math.pi))^2 < (math.sin(sonar_fov*2*math.pi))^2 then
                 lock_on = false
+                PN_toggle = false
                 lock_on_x = target_rotate_x
                 lock_on_z = target_rotate_z
+                lock_on_x_table, lock_on_z_table = {}, {}
             else
                 lock_on = true
+
+                table.insert(lock_on_x_table, sonar_table[min_i][1])
+                table.insert(lock_on_z_table, sonar_table[min_i][2])
+
+                target_x = sonar_table[min_i][1]
+                target_z = sonar_table[min_i][2]
                 lock_on_x = sonar_table[min_i][1]
                 lock_on_z = sonar_table[min_i][2]
             end
         else
             lock_on = false
         end
+
+        --#サンプル数を一定値に保つ
+        while #lock_on_x_table > sample_num do
+            table.remove(lock_on_x_table, 1)
+        end
+        while #lock_on_z_table > sample_num do
+            table.remove(lock_on_z_table, 1)
+        end
+
+        --最小二乗法
+        ax, bx = least_squares_method(lock_on_x_table)
+        az, bz = least_squares_method(lock_on_z_table)
+
+        --距離が近い()
+        if t >= 180 and #lock_on_x_table >= sample_num then
+            PN_toggle = true
+        elseif lock_on then
+            t = t + 1
+        else
+            t = 0
+            PN_toggle = false
+        end
+
+        --[[
+        
+        if PN_toggle then
+            target_x = ax*60
+            target_z = az*60
+        end
+
+        ]]
     else
         lock_on = false
+        ax, az = 0, 0
+        bx, bz = 0, 0
     end
 
     --遅延対策のため、オン/オフを0 or 1に変換
@@ -154,24 +202,53 @@ function onTick()
         lock_on_num = 0
     end
 
-    --出力値調整
-    if launch and lock_on and terminal_guidance then
-        guidance_x, error_sum_x, error_pre_x = PID(P, I, D, 0, -lock_on_x, error_sum_x, error_pre_x)
-        guidance_z, error_sum_z, error_pre_z = PID(P, I, D, 0, -lock_on_z, error_sum_z, error_pre_z)
-    else
-        error_pre_x = 0
-        error_sum_x = 0
-        error_pre_z = 0
-        error_sum_z = 0
-        guidance_x = 0
-        guidance_z = 0
-    end
-
-    guidance_x = clamp(guidance_x, -1, 1)
-    guidance_z = clamp(guidance_z, -1, 1)
-
-    OUN(1, guidance_x)
-    OUN(2, guidance_z)
+    OUN(1, target_x)
+    OUN(2, target_z)
     OUN(3, lock_on_num)
 
+    --グラフ描画用
+    table.insert(rawtable, target_x)
+    table.insert(filtertable, ax*sample_num + bx)
+    table.insert(speedtable, ax)
+    
+    max_sample = 289
+    if #rawtable > max_sample then
+        table.remove(rawtable, 1)
+    end
+    if #filtertable > max_sample then
+        table.remove(filtertable, 1)
+    end
+    if #speedtable > max_sample then
+        table.remove(speedtable, 1)
+    end
+end
+
+function onDraw()
+    w = screen.getWidth()
+    h = screen.getHeight()
+
+    screen.setColor(255, 255, 255)
+    screen.drawLine(0, h/2, w, h/2)
+
+    screen.setColor(255, 255, 255, 128)
+    for i = 1, 9 do
+        line = math.floor(h*i/10)
+        screen.drawLine(0, line, w, line)
+        text = string.format("%.3f", 0.01 - 0.002*i)
+        screen.drawText(w - #text*5, line - 6, text)
+    end
+    
+    for i = 1, #rawtable do
+        screen.setColor(255, 255, 0)
+        glaph = math.floor(-rawtable[i]*(h/2)*100 + h/2)
+        screen.drawLine(w - #rawtable + i, glaph, w - #rawtable + i + 1, glaph)
+
+        screen.setColor(255, 0, 0)
+        glaph = math.floor(-filtertable[i]*(h/2)*100 + h/2)
+        screen.drawLine(w - #filtertable + i, glaph, w - #filtertable + i + 1, glaph)
+
+        screen.setColor(0, 0, 255)
+        glaph = math.floor(-speedtable[i]*(h/2)*3000 + h/2)
+        screen.drawLine(w - #speedtable + i, glaph, w - #speedtable + i + 1, glaph)
+    end
 end

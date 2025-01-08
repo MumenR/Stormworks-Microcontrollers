@@ -53,7 +53,7 @@ speedlist = {}
 detonate = false
 step1 = false
 step2 = false
-step3 = false
+
 
 target_x, target_y, target_z, target_vx, target_vy, target_vz = 0, 0, 0, 0, 0, 0
 
@@ -79,12 +79,9 @@ function clamp(x, min, max)
 end
 
 function World2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
-	
-	local Wx = Wx - Px
-	local Wy = Wy - Pz
-	local Wz = Wz - Py
-	
+	local Wx, Wy, Wz = Wx - Px, Wy - Pz, Wz - Py
 	local a, b, c, d, e, f, g, h, i, j, k, l, x, z, y
+
 	a = math.cos(Ez)*math.cos(Ey)
 	b = math.cos(Ez)*math.sin(Ey)*math.sin(Ex) - math.sin(Ez)*math.cos(Ex)
 	c = math.cos(Ez)*math.sin(Ey)*math.cos(Ex) + math.sin(Ez)*math.sin(Ex)
@@ -97,18 +94,16 @@ function World2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
 	j = math.cos(Ey)*math.sin(Ex)
 	k = math.cos(Ey)*math.cos(Ex)
 	l = Wy
-	
+
 	local Lower = ((a*f-b*e)*k + (c*e - a*g)*j + (b*g - c*f)*i)
-	x = 0
-	y = 0
-	z = 0
-	
+	x, y, z = 0, 0, 0
+
 	if Lower ~= 0 then
 		x = ((b*g - c*f)*l + (d*f - b*h)*k + (c*h - d*g)*j)/Lower
 		y = -((a*g - c*e)*l + (d*e - a*h)*k + (c*h - d*g)*i)/Lower
 		z = ((a*f - b*e)*l + (d*e - a*h)*j + (b*h - d*f)*i)/Lower
 	end
-	
+
 	return x, z, y
 end
 
@@ -137,7 +132,7 @@ function speed_average(v)
     end
     local sum_v = 0
     for i = 1, #speedlist do
-        sum_v = sum_v + speedlist[i]        
+        sum_v = sum_v + speedlist[i]
     end
     return sum_v/#speedlist
 end
@@ -179,16 +174,102 @@ function cruise(target_x, target_y, world_x, world_y, delay)
     return x, y
 end
 
+--衝突位置予測
+function cal_collision_location(target_x, target_y, target_z, target_vx, target_vy, target_vz, world_x, world_y, world_z, missile_v, distance, delay)
+    target_x, target_y, target_z = cal_future_position(target_x, target_y, target_z, target_vx, target_vy, target_vz, delay)
+    local target_v, theta, tick, tick_plus, tick_minus, future_x, future_y, future_z
+    local vector_x, vector_y, vector_z = world_x - target_x, world_y - target_y, world_z - target_z 
+    theta = math.acos((target_vx*vector_x + target_vy*vector_y + target_vz*vector_z)/math.sqrt((target_vx^2 + target_vy^2 + target_vz^2)*(vector_x^2 + vector_y^2 + vector_z)))
+    target_v = math.sqrt(target_vx^2 + target_vy^2 + target_vz^2)
+    if target_v == missile_v then
+        if math.cos(theta) > 0 then
+            tick = distance/(missile_v*math.cos(theta))
+        else
+            tick = 0
+        end
+    else
+        if missile_v/target_v > math.abs(math.sin(theta)) then
+            tick_plus = distance*(target_v*math.cos(theta) + math.sqrt(missile_v^2 - (target_v^2)*(math.sin(theta)^2)))/(target_v^2 - missile_v^2)
+            tick_minus = distance*(target_v*math.cos(theta) - math.sqrt(missile_v^2 - (target_v^2)*(math.sin(theta)^2)))/(target_v^2 - missile_v^2)
+            if tick_plus > 0 and tick_minus > 0 then
+                if tick_plus > tick_minus then
+                    tick = tick_minus
+                else
+                    tick = tick_plus
+                end
+            elseif tick_plus > 0 and tick_minus <= 0 then
+                tick = tick_plus
+            elseif tick_minus > 0 and tick_plus <= 0 then
+                tick = tick_minus
+            else
+                tick = 0
+            end
+        elseif missile_v/target_v == math.abs(math.sin(theta)) then
+            tick = distance*target_v*math.cos(theta)/(target_v^2 - missile_v^2)
+        else
+            tick = 0
+        end
+    end
+    future_x, future_y, future_z = cal_future_position(target_x, target_y, target_z, target_vx, target_vy, target_vz, tick)
+    return future_x, future_y, future_z
+end
+
+error_pre_x = 0
+error_sum_x = 0
+error_pre_z = 0
+error_sum_z = 0
+
+--PID制御
+function PID(P, I, D, target, current, error_sum, error_pre)
+    local error, error_diff, controll
+    error = target - current
+    error_sum = error_sum + error
+    error_diff = error - error_pre
+    controll = P*error + I*error_sum + D*error_diff
+    return controll, error_sum, error
+end
+
 function onTick()
+    terminal_guidance = false
+    detonate = false
+
     detected = INB(1)
     launch = INB(2)
     hardpoint_detected = INN(29)
     manual_mode = INB(3)
+    sonar_lock_on = (INN(18) == 1)
+    sonar = INB(4)
+
+    physics_x = INN(7)
+    physics_y = INN(8)
+    physics_z = INN(9)
+    euler_x = INN(10)
+    euler_y = INN(11)
+    euler_z = INN(12)
+    abs_v = INN(13)/60
+    mode = INN(14)
+    gain = 0.1
+    target_azimuth = INN(19) -- -0.5 to 0.5, 東側が正
+    target_depth = INN(20)
+
+    impact_threshold = INN(21)
+
+    P = property.getNumber("P")
+    I = property.getNumber("I")
+    D = property.getNumber("D")
+
 
     if manual_mode then
         target_x = INN(30)
         target_y = INN(31)
         target_z = INN(32)
+        target_vx = 0
+        target_vy = 0
+        target_vz = 0
+    elseif mode == 2 then
+        target_x = physics_x + 200*math.sin(target_azimuth*2*math.pi)
+        target_y = physics_z + 200*math.cos(target_azimuth*2*math.pi)
+        target_z = -target_depth
         target_vx = 0
         target_vy = 0
         target_vz = 0
@@ -208,28 +289,20 @@ function onTick()
         target_vz = INN(28)
     end
 
-    physics_x = INN(7)
-    physics_y = INN(8)
-    physics_z = INN(9)
-    euler_x = INN(10)
-    euler_y = INN(11)
-    euler_z = INN(12)
-    abs_v = INN(13)/60
-    mode = INN(14)
-    gain = INN(15)
-    sonar_vx = INN(16)
-    sonar_vz = INN(17)
-
-    sonar_lock_on = (INN(18) == 1)
-    sonar = INB(4)
-
     world_x = physics_x
     world_y = physics_z
     world_z = physics_y
 
     if launch then
+        launch_num = 1
         missile_v = speed_average(abs_v)
         target_distance = distance(target_x, target_y, target_z, world_x, world_y, world_z)
+
+        --ソナー追尾目標計算
+        target_local_x, target_local_y, target_local_z = World2Local(target_x, target_y, target_z, physics_x, physics_y, physics_z, euler_x, euler_y, euler_z)
+        sonar_target_x = atan2(target_local_y, target_local_x)/(2*math.pi)
+        sonar_target_z = atan2(target_local_y, target_local_z)/(2*math.pi)
+
 
         --destinationに目的地のワールド座標を入れる
         --最低高度まで上昇
@@ -238,66 +311,78 @@ function onTick()
             if  world_z > launch_z + 25 then
                 step1 = true
             end
-        --巡航
+        --水中巡航
         elseif step2 == false then
-            cruise_target_x, cruise_target_y, cruise_target_z = cal_collision_location(target_x, target_y, target_z, target_vx, target_vy, target_vz, world_x, world_y, world_z, missile_v, target_distance, 2)
+            cruise_target_x, cruise_target_y, cruise_target_z = cal_collision_location(target_x, target_y, target_z, target_vx, target_vy, target_vz, world_x, world_y, world_z, missile_v, target_distance, 5)
+            destination_x, destination_y = cruise(cruise_target_x, cruise_target_y, world_x, world_y, 300)
+            destination_z = -target_depth
 
-            --シースキミング
-            destination_x, destination_y = cruise(cruise_target_x, cruise_target_y, world_x, world_y, 200)
-            destination_z = 5
-
-            --座標誘導
-            if mode == 1 and target_distance < 2000 then
+            if mode == 1 and distance(target_x, target_y, 0, world_x, world_y, 0) < 1000  then
                 step2 = true
-            --方位角指定発射
-            elseif mode == 2 then
+            elseif mode == 2 and sonar_lock_on and sonar and (world_z <= -target_depth + 1) then
                 step2 = true
             end
-        
-        elseif step3 == false then
-            cruise_target_x, cruise_target_y, cruise_target_z = cal_collision_location(target_x, target_y, target_z, target_vx, target_vy, target_vz, world_x, world_y, world_z, missile_v, target_distance, 2)
 
-            --水中巡航
-            destination_x, destination_y = cruise(cruise_target_x, cruise_target_y, world_x, world_y, 200)
-            destination_z = -5
-
-            if mode == 1 and target_distance < 1000  then
-                step3 = true
-            elseif mode == 2 and sonar_lock_on and sonar then
-                step3 = true
-            end
         --終末誘導
         else
-            if sonar then
+            destination_x, destination_y, destination_z = cal_collision_location(target_x, target_y, target_z, target_vx, target_vy, target_vz, world_x, world_y, world_z, missile_v, target_distance, 5)
 
-            else
-                destination_x, destination_y, destination_z = cal_collision_location(target_x, target_y, target_z, target_vx, target_vy, target_vz, world_x, world_y, world_z, missile_v, target_distance, 2)
+            if sonar and sonar_lock_on then
+                terminal_guidance = true
             end
 
-            destination_distance = distance(destination_x, destination_y, destination_z, world_x, world_y, world_z)
-            if destination_distance < 15 then
+            if (last_abs_v - abs_v)*60 > impact_threshold or (distance(destination_x, destination_y, destination_z, physics_x, physics_z, physics_y) < 10 and mode == 1)then
                 detonate = true
             end
 
+            if mode == 1 and distance(target_x, target_y, 0, world_x, world_y, 0) > 1200  then
+                step2 = false
+                terminal_guidance = false
+            end
         end
 
+        --出力計算
         tgtlocal_x, tgtlocal_y, tgtlocal_z = World2Local(destination_x, destination_y, destination_z, physics_x, physics_y, physics_z, euler_x, euler_y, euler_z)
         surface_x, surface_y = cal_surface(tgtlocal_x, tgtlocal_y, tgtlocal_z, gain)
+        surface_x, error_sum_x, error_pre_x = PID(P, I, D, 0, -surface_x, error_sum_x, error_pre_x)
+        surface_y, error_sum_z, error_pre_z = PID(P, I, D, 0, -surface_y, error_sum_z, error_pre_z)
+
+        last_abs_v = abs_v
     else
+        sonar_target_x, sonar_target_z = 0, 0
         surface_x, surface_y = 0, 0
         launch_z = world_z
+        launch_num = 0
+        error_pre_x = 0
+        error_sum_x = 0
+        error_pre_z = 0
+        error_sum_z = 0
+    end
+
+    if sonar then
+        if terminal_guidance then
+            sonar_and_terminal = 4
+        else
+            sonar_and_terminal = 3
+        end
+    else
+        if terminal_guidance then
+            sonar_and_terminal = 2
+        else
+            sonar_and_terminal = 1
+        end
     end
 
     OUN(1, surface_x)
     OUN(2, surface_y)
-    OUN(3, destination_x)
-    OUN(4, destination_y)
-    OUN(5, destination_z)
-    OUN(6, missile_v)
+
+    OUN(29, launch_num)
+    OUN(30, sonar_and_terminal)
+    OUN(31, sonar_target_x)
+    OUN(32, sonar_target_z)
+
     OUB(1, detonate)
     OUB(2, step1)
-    OUB(3, step2)
-    OUB(4, step3)
-    OUB(5, sonar)
-    OUB(7, sonar_lock_on == 1)
+    OUB(3, terminal_guidance)
+
 end
