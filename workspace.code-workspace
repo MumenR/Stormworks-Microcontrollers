@@ -9,28 +9,32 @@
 			"path": "products/Logic/AVE"
 		},
 		{
-			"name": "Ballistic Computer V1",
-			"path": "products/Logic/Ballistic Computer V1"
+			"name": "Ballistic Calculator V1",
+			"path": "products/Logic/Ballistic Calculator V1"
+		},
+		{
+			"name": "Ballistic Calculator V2",
+			"path": "products/Logic/Ballistic Calculator V2"
 		},
 		{
 			"name": "Battery Remaining V1",
 			"path": "products/Logic/Battery Remaining V1"
 		},
 		{
-			"name": "Cam Laser",
-			"path": "products/Logic/Cam Laser"
+			"name": "Camera Controller V1",
+			"path": "products/Logic/Camera Controller V1"
 		},
 		{
-			"name": "Cam Stabilized",
-			"path": "products/Logic/Cam Stabilized"
+			"name": "Camera Controller V2",
+			"path": "products/Logic/Camera Controller V2"
+		},
+		{
+			"name": "Caterpillar Controller V1",
+			"path": "products/Logic/Caterpillar Controller V1"
 		},
 		{
 			"name": "Configurable HUD v3.3",
 			"path": "products/Logic/Configurable HUD v3.3"
-		},
-		{
-			"name": "Delta Fuel",
-			"path": "products/Logic/Delta Fuel"
 		},
 		{
 			"name": "depth survey'",
@@ -41,8 +45,20 @@
 			"path": "products/Logic/digital clock"
 		},
 		{
+			"name": "Digital indicators V1",
+			"path": "products/Logic/Digital indicators V1"
+		},
+		{
 			"name": "electronic bulletin board",
 			"path": "products/Logic/electronic bulletin board"
+		},
+		{
+			"name": "Engine Controller V4",
+			"path": "products/Logic/Engine Controller V4"
+		},
+		{
+			"name": "FCS Exchanger V1",
+			"path": "products/Logic/FCS Exchanger V1"
 		},
 		{
 			"name": "FCS Type 2",
@@ -53,12 +69,40 @@
 			"path": "products/Logic/FCS Type 3"
 		},
 		{
+			"name": "FCS Type 4",
+			"path": "products/Logic/FCS Type 4"
+		},
+		{
+			"name": "FCS Type 5",
+			"path": "products/Logic/FCS Type 5"
+		},
+		{
+			"name": "Fuel crusing distance meter V1",
+			"path": "products/Logic/Fuel crusing distance meter V1"
+		},
+		{
+			"name": "Fuel crusing distance meter V2",
+			"path": "products/Logic/Fuel crusing distance meter V2"
+		},
+		{
+			"name": "Hydrofoil Controller V1",
+			"path": "products/Logic/Hydrofoil Controller V1"
+		},
+		{
 			"name": "ICBM Type 0",
 			"path": "products/Logic/ICBM Type 0"
 		},
 		{
 			"name": "Oxygen concentration meter V1",
 			"path": "products/Logic/Oxygen concentration meter V1"
+		},
+		{
+			"name": "Screw controller V1",
+			"path": "products/Logic/Screw controller V1"
+		},
+		{
+			"name": "Search Radar V1",
+			"path": "products/Logic/Search Radar V1"
 		},
 		{
 			"name": "Simple map V1",
@@ -73,8 +117,16 @@
 			"path": "products/Logic/SM Type 2"
 		},
 		{
+			"name": "Sonar Azimuth",
+			"path": "products/Logic/Sonar Azimuth"
+		},
+		{
 			"name": "Spd and Alt display V2",
 			"path": "products/Logic/Spd and Alt display V2"
+		},
+		{
+			"name": "Spd and Alt disolay V3",
+			"path": "products/Logic/Spd and Alt disolay V3"
 		},
 		{
 			"name": "Sub Hatch Controller V1",
@@ -83,6 +135,10 @@
 		{
 			"name": "Sub Stabilizer V1",
 			"path": "products/Logic/Sub Stabilizer V1"
+		},
+		{
+			"name": "Tank Stand V1",
+			"path": "products/Logic/Tank Stand V1"
 		},
 		{
 			"name": "test",
@@ -121,6 +177,7 @@
 		"lifeboatapi.stormworks.user.githubLink": "https://github.com/MumenR/Stormworks-Microcontrollers",
 		"lifeboatapi.stormworks.libs.libraryPaths": [
 			"C:\\Users\\yosuk\\iCloudDrive\\ドキュメント\\Stormworks\\Microcontrollers\\products\\Logic"
-		]
+		],
+		"lua.debug.variables.showIntegerAsHex": false
 	}
 }
