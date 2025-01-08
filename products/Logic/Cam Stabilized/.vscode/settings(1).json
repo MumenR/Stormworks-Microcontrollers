@@ -37,19 +37,11 @@
     ],
     "Lua.runtime.pathStrict": true,
     "Lua.workspace.library": [
-<<<<<<<< HEAD:products/Logic/Ballistic Calculator V2/.vscode/settings.json
-        "c:/Users/yosuk/iCloudDrive/Stormworks/Microcontrollers/products/Logic/Ballistic Calculator V2/",
+        "c:/Users/yosuk/iCloudDrive/Stormworks/Microcontrollers/products/Logic/Cam Stabilized/",
         "c:/Users/yosuk/.vscode/extensions/nameouschangey.lifeboatapi-0.0.33/assets/lua/Common/",
         "c:/Users/yosuk/.vscode/extensions/nameouschangey.lifeboatapi-0.0.33/assets/lua/Microcontroller/",
         "C:/Users/yosuk/iCloudDrive/ドキュメント/Stormworks/Microcontrollers/products/Logic/",
-        "c:/Users/yosuk/iCloudDrive/Stormworks/Microcontrollers/products/Logic/Ballistic Calculator V2/_build/libs/"
-========
-        "c:/Users/yosuk/iCloudDrive/Stormworks/Microcontrollers/products/Logic/FCS Type 4/",
-        "c:/Users/yosuk/.vscode/extensions/nameouschangey.lifeboatapi-0.0.33/assets/lua/Common/",
-        "c:/Users/yosuk/.vscode/extensions/nameouschangey.lifeboatapi-0.0.33/assets/lua/Microcontroller/",
-        "C:/Users/yosuk/iCloudDrive/ドキュメント/Stormworks/Microcontrollers/products/Logic/",
-        "c:/Users/yosuk/iCloudDrive/Stormworks/Microcontrollers/products/Logic/FCS Type 4/_build/libs/"
->>>>>>>> 292ca68cc9b947bb85c922b80799c708a55a795f:products/Logic/FCS Type 4/.vscode/settings.json
+        "c:/Users/yosuk/iCloudDrive/Stormworks/Microcontrollers/products/Logic/Cam Stabilized/_build/libs/"
     ],
     "lifeboatapi.stormworks.libs.gitLibraries": [
         {
