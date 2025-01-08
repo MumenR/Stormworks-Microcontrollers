@@ -45,7 +45,6 @@ receive = false
 send_in_pulse = false
 receive_in_pulse = false
 fire_table = {}
-<<<<<<< HEAD
 t = 1700
 
 --シリアルナンバー生成
@@ -72,15 +71,6 @@ function onTick()
         t = t + 1
     end
 
-=======
-t = 0
-
---シリアルナンバー生成
-math.randomseed()
-SN = math.random(1, 100000000)
-
-function onTick()
->>>>>>> 292ca68cc9b947bb85c922b80799c708a55a795f
     --排他的トグルボタン
     send_in = INB(6)
     receive_in = INB(7)
