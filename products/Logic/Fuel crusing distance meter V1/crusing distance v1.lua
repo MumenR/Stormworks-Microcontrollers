@@ -110,7 +110,7 @@ function onTick()
         Fuelsec = 0
     end
     Crusingdistance = Fuelsec*speed_ave/1000
-    Fueleconomy = Crusingdistance/Fuel
+    Fueleconomy = 1000*Crusingdistance/Fuel
 
     OUN(1, Fuel)
     OUN(2, Fueldelta)
@@ -118,5 +118,4 @@ function onTick()
     OUN(4, Crusingdistance)
     OUN(5, Fueleconomy)
 end
-
 

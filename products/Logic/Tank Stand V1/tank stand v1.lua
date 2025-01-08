@@ -21,20 +21,9 @@ do
     ---@param ticks     number Number of ticks since simulator started
     function onLBSimulatorTick(simulator, ticks)
 
-        -- touchscreen defaults
-        local screenConnection = simulator:getTouchScreen(1)
-        simulator:setInputBool(1, screenConnection.isTouched)
-        simulator:setInputNumber(1, screenConnection.width)
-        simulator:setInputNumber(2, screenConnection.height)
-        simulator:setInputNumber(3, screenConnection.touchX)
-        simulator:setInputNumber(4, screenConnection.touchY)
-
         -- NEW! button/slider options from the UI
-        simulator:setInputBool(5, simulator:getIsClicked(1))       -- if button 1 is clicked, provide an ON pulse for input.getBool(31)
-        simulator:setInputNumber(5, simulator:getSlider(1)*500)        -- set input 31 to the value of slider 1
-
-        simulator:setInputBool(32, simulator:getIsToggled(2))       -- make button 2 a toggle, for input.getBool(32)
-        simulator:setInputNumber(32, simulator:getSlider(2) * 50)   -- set input 32 to the value from slider 2 * 50
+        simulator:setInputNumber(1, simulator:getSlider(1)*1000000)        -- set input 31 to the value of slider 1
+        simulator:setInputNumber(2, simulator:getSlider(2)*60)   -- set input 32 to the value from slider 2 * 50
     end;
 end
 ---@endsection
@@ -45,27 +34,26 @@ end
 -- try require("Folder.Filename") to include code from another file in this, so you can store code in libraries
 -- the "LifeBoatAPI" is included by default in /_build/libs/ - you can use require("LifeBoatAPI") to get this, and use all the LifeBoatAPI.<functions>!
 
-function onTick()
-    d = input.getNumber(5)
-    if d >= 100 then
-        distance = math.floor(d)
-    elseif d >= 10 then
-        distance = math.floor(d*10)/10
-    else
-        distance = math.floor(d*100)/100
-    end
+--３桁ごとにカンマ
+function comma_value(number)
+    local character = string.format("%.0f", number)
+    character = character:reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", "")
+    return character
+end
 
+function onTick()
+    tank = input.getNumber(1)
+    pressure = input.getNumber(2)
+    content = property.getText("Tank Content")
+    --フォーマット
+    tank = comma_value(tank).." L"
+    pressure = string.format("%.2f ATM", pressure)
 end
 
 function onDraw()
-    h = screen.getHeight()
     w = screen.getWidth()
-
-    screen.setColor(0, 255, 0)
-    screen.drawText(w/2 - 2.5*#tostring(distance), 1, distance)
-    screen.drawText(w/2 - 2.5*#tostring(distance) - 10, 1, "D:")
-    screen.drawText(w/2 + 2.5*#tostring(distance), 1, "m")
+    h = screen.getHeight()
+    screen.drawText(w/2 - #content*2.5, 2, content)
+    screen.drawText(w/2 + 27 - #tank*5, h/2 - 3, tank)
+    screen.drawText(w/2 + 37 - #pressure*5, h - 8, pressure)
 end
-
-
-
