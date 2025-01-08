@@ -111,7 +111,7 @@ end
 --xy = {{t1, x1}, {t2, x2},...}
 function least_squares_method2(xy)
     local a, b, c, t, n, S1, S2, S3, S4, T0, T1, T2 = 0, 0, 0, xy[#xy][1], #xy, 0, 0, 0 ,0 ,0, 0, 0
-    if #xy <= 5 then
+    if #xy <= 1 then
         c = xy[n][2]
     else
         for i=1, n do
