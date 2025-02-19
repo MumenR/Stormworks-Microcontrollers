@@ -45,30 +45,39 @@ receive = false
 send_in_pulse = false
 receive_in_pulse = false
 fire_table = {}
-t = 1700
+t = 0
+SN_t = 1700
+
+function bool2num(bool)
+    local num = 0
+    if bool then
+        num = 1
+    end
+    return num
+end
 
 --シリアルナンバー生成
-SN = math.random(1, 100000000)
+SN = math.random(1, 10000000)
 
 function onTick()
 
     --シリアルナンバー更新
-    if t >= 1800 then
+    if SN_t >= 1800 then
         physics_x = INN(24)
         physics_y = INN(25)
         physics_z = INN(26)
 
-        t = 0
+        SN_t = 0
         math.randomseed(physics_x)
-        SN_x = math.random(1, 30000000)
+        SN_x = math.random(1, 3000000)
         math.randomseed(physics_y)
-        SN_y = math.random(1, 30000000)
+        SN_y = math.random(1, 3000000)
         math.randomseed(physics_z)
-        SN_z = math.random(1, 30000000)
+        SN_z = math.random(1, 3000000)
 
         SN = SN_x + SN_y + SN_z
     else
-        t = t + 1
+        SN_t = SN_t + 1
     end
 
     --排他的トグルボタン
@@ -98,7 +107,6 @@ function onTick()
     timing_tick = INN(9)
     OUN(31, timing_tick)
     OUN(32, SN)
-
 
     --ホスト処理、最大値選択
     timing_tick_send_in = INN(10)
@@ -144,7 +152,7 @@ function onTick()
         --自分と比較
         if timing_tick > timing_tick_receive_in and SN_receive_in ~= SN then
             timing_radio = true
-        elseif SN_receive_in == SN then
+        elseif math.abs(SN_receive_in - SN) < 1 then
             timing_radio = not timing_radio
         else
             timing_radio = false
@@ -184,7 +192,8 @@ function onTick()
         fire = fire_send
     end
     OUB(2, fire)
-    OUB(3, fire_send)
+    OUN(10, bool2num(fire))
+    OUN(11, bool2num(fire_send))
 
     --ELI出力切り替え
     if receive then
@@ -192,15 +201,20 @@ function onTick()
             OUN(i, INN(i + 11))
         end
         OUB(1, INN(20) == 1)
+        OUN(9, INN(20))
         OUB(4, INN(23) == 1)
+        OUN(12, INN(23))
     else
         for i = 1, 6 do
             OUN(i, INN(i))
         end
         OUB(1, INB(1))
+        OUN(9, bool2num(INB(1)))
         OUB(4, INB(4))
+        OUN(12, bool2num(INB(4)))
     end
 
+    --debug
     OUN(20, #fire_table)
     OUN(21, timing_index)
 end

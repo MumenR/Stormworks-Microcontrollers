@@ -37,11 +37,11 @@
     ],
     "Lua.runtime.pathStrict": true,
     "Lua.workspace.library": [
-        "c:/Users/yosuk/iCloudDrive/Stormworks/Microcontrollers/products/Logic/test/",
+        "c:/Users/yosuk/OneDrive/Stormworks/Microcontrollers/products/Logic/test/",
         "c:/Users/yosuk/.vscode/extensions/nameouschangey.lifeboatapi-0.0.33/assets/lua/Common/",
         "c:/Users/yosuk/.vscode/extensions/nameouschangey.lifeboatapi-0.0.33/assets/lua/Microcontroller/",
         "C:/Users/yosuk/iCloudDrive/ドキュメント/Stormworks/Microcontrollers/products/Logic/",
-        "c:/Users/yosuk/iCloudDrive/Stormworks/Microcontrollers/products/Logic/test/_build/libs/"
+        "c:/Users/yosuk/OneDrive/Stormworks/Microcontrollers/products/Logic/test/_build/libs/"
     ],
     "lifeboatapi.stormworks.libs.gitLibraries": [
         {
