@@ -318,21 +318,13 @@ function onTick()
     max_speed_gain = INN(26)
     delay = INN(27)
     stabi_delay = INN(28)
-    
+
     pitch_pivot_speed = PRN("Pitch gear ratio (1 : ?)")/PRN("Types of Pitch PIVOT")   --gear/pivot
     yaw_pivot_speed = PRN("Yaw gear ratio (1 : ?)")/PRN("Types of Yaw PIVOT")
 
     offset_x = PRN("offset x (m)")
     offset_y = PRN("offset y (m)")
     offset_z = PRN("offset z (m)")
-
-    --ゼロ除算対策
-    if pitch_pivot_speed ~= pitch_pivot_speed then
-        pitch_pivot_speed = 1
-    end
-    if yaw_pivot_speed ~= yaw_pivot_speed then
-        yaw_pivot_speed = 1
-    end
 
     detected = INB(1)
     power = INB(2)
@@ -431,12 +423,6 @@ function onTick()
                     end
 
                     x = cal_Trajectory(V0_x, wind_ax, tick)
-                    
-                    
-                    OUN(28, x)
-                    OUN(29, y)
-                    OUN(30, z)
-                    
 
                     --イテレーション終了
                     if (math.abs(future_z - z) < 0.1 and k < 2) or (math.abs(goal_y - y) < 0.1 and k > 1) then
@@ -458,10 +444,11 @@ function onTick()
                     else
                         Elevation = Elevation + atan2(goal_y, future_z) - atan2(y, z)
                     end
-                    
+
+                    Iteration_j = j
                 end
 
-                range = tick < tick_del
+                range = tick < tick_del and Iteration_j ~= 30
 
                 --曲射ループへ
                 if INB(4) and k < 2 and range then
@@ -553,6 +540,14 @@ function onTick()
     --ヨー角制限
     if yaw_limit then
         yaw = limit_rotation(yaw, same_rotation(yaw_position), min_yaw, max_yaw)
+    end
+
+    --ゼロ除算対策
+    if pitch ~= pitch then
+        pitch = 0
+    end
+    if yaw ~= yaw then
+        yaw = 0
     end
 
     OUN(1, pitch)
