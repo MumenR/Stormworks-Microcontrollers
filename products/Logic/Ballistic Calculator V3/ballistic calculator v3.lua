@@ -50,6 +50,7 @@ INB = input.getBool
 OUN = output.setNumber
 OUB = output.setBool
 PRN = property.getNumber
+PRB = property.getBool
 
 --初速と風影響度
 --WI = wind influence
@@ -60,7 +61,7 @@ rocket_a = 600/3600
 tick = 0
 
 infty = 10000
-error_range = 1 --degree
+error_range = 2 --degree
 
 parameter = {
     {600, 0.0005, 2400, 0.105}, --Bertha
@@ -206,8 +207,7 @@ function PID(P, I, D, target, current, error_sum_pre, error_pre, min, max)
         error_sum = error_sum_pre
         controll = P*error + I*error_sum + D*error_diff
     end
-
-    return controll, error_sum, error
+    return clamp(controll, min, max), error_sum, error
 end
 
 function same_rotation(x)
@@ -229,15 +229,55 @@ function limit_rotation(controll, position, min, max)
     return controll
 end
 
---ローカル極座標からローカル座標へ変換
-function Polar2Local(pitch, yaw, distance)
-    return distance*math.cos(pitch)*math.sin(yaw), distance*math.cos(pitch)*math.cos(yaw), distance*math.sin(pitch)
+--角速度より未来位置計算
+t_delta = 0.01
+function stabi_future_angle(x, y, z, rvx, rvy, rvz, tick)
+    local x_diff, y_diff, z_diff, abs_vector, t
+    t = 0
+    while t <= tick do
+        --外積(変分)を計算
+        x_diff, y_diff, z_diff = y*rvz - z*rvy, z*rvx - x*rvz, x*rvy - y*rvx
+        --位置ベクトルに足し合わせる
+        x, y, z = x + x_diff*t_delta, y + y_diff*t_delta, z + z_diff*t_delta
+        --単位ベクトル化
+        abs_vector = math.sqrt(x^2 + y^2 + z^2)
+        x, y, z = x/abs_vector, y/abs_vector, z/abs_vector
+        t = t + t_delta
+    end
+    return x, y, z
+end
+
+--視線角速度
+function los_rv(Px, Py, Pz, Pex, Pey, Pez, Pvx, Pvy, Pvz, Prvx, Prvy, Prvz, TGTx, TGTy, TGTz, TGTvx, TGTvy, TGTvz)
+    local Lrvx, Lrvy, Lrvz, TGTLx, TGTLy, TGTLz, TGTLvx, TGTLvy, TGTLvz, los_rvx, los_rvy, los_rvz
+    
+    Lrvx, Lrvy, Lrvz = World2Local(Prvx, Prvz, Prvy, 0, 0, 0, Pex, Pey, Pez)
+    TGTLx, TGTLy, TGTLz = World2Local(TGTx, TGTy, TGTz, Px, Py, Pz, Pex, Pey, Pez)
+    TGTLvx, TGTLvy, TGTLvz = World2Local(TGTvx, TGTvy, TGTvz, 0, 0, 0, Pex, Pey, Pez)
+
+    los_rvx = atan2(TGTLz + TGTLvz - Pvy, TGTLy + TGTLvy - Pvz) - atan2(TGTLz, TGTLy) - Lrvx
+    los_rvy = atan2(TGTLx + TGTLvx - Pvx, TGTLz + TGTLvz - Pvy) - atan2(TGTLx, TGTLz) - Lrvy
+    los_rvz = atan2(TGTLy + TGTLvy - Pvz, TGTLx + TGTLvx - Pvx) - atan2(TGTLy, TGTLx) - Lrvz
+    
+    return los_rvx, los_rvy, los_rvz
+end
+
+--ローカル座標からローカル極座標へ変換
+function Local2Polar(x, y, z, radian_bool)
+    local pitch, yaw
+    pitch = atan2(math.sqrt(x^2 + y^2), z)
+    yaw = atan2(y, x)
+    if radian_bool then
+        return pitch, yaw
+    else
+        return pitch/(math.pi*2), yaw/(math.pi*2)
+    end
 end
 
 function onTick()
-    target_x = INN(1) - INN(7)
-    target_y = INN(2) - INN(9)
-    target_z = INN(3) - INN(8)
+    target_x = INN(1)
+    target_y = INN(2)
+    target_z = INN(3)
     target_vx = INN(4)
     target_vy = INN(5)
     target_vz = INN(6)
@@ -252,36 +292,66 @@ function onTick()
     physics_vx = INN(13)/60
     physics_vy = INN(14)/60
     physics_vz = INN(15)/60
-    physics_rx = INN(16)
-    physics_ry = INN(17)
-    physics_rz = INN(18)
+    physics_rvx = INN(16)
+    physics_rvy = INN(17)
+    physics_rvz = INN(18)
 
     local_wind_v = INN(19)/60
     local_wind_direc = INN(20)
     pitch_position = INN(21)
-    yaw_position = INN(22) - INN(24)/360
+    yaw_position = INN(22)
 
-    Weapon = INN(23) + 1
-    standby = INN(24)/360
-    fov = INN(25)/720
-    min_elevation = INN(26)/360
-    max_elevation = INN(27)/360
+    Weapon = PRN("Weapon Type") + 1
+    standby = PRN("standby yaw position (degree)")/360
+    min_pitch = PRN("min pitch (degree)")/360
+    max_pitch = PRN("max pitch (degree)")/360
+    pitch_limit = PRB("Pitch Swivel Mode")
+    min_yaw = PRN("min yaw (degree)")/360
+    max_yaw = PRN("max yaw (degree)")/360
+    yaw_limit = PRB("Yaw Swivel Mode")
 
-    max_speed_gain = INN(28)
-    pitch_pivot_speed = INN(32)/INN(30)   --gear/pivot
-    yaw_pivot_speed = INN(32)/INN(31)
+    yaw_position = yaw_position - standby
 
-    rotation_limit = INB(3)
+    P = INN(23)
+    I = INN(24)
+    D = INN(25)
+    max_speed_gain = INN(26)
+    delay = INN(27)
+    stabi_delay = INN(28)
+    
+    pitch_pivot_speed = PRN("Pitch gear ratio (1 : ?)")/PRN("Types of Pitch PIVOT")   --gear/pivot
+    yaw_pivot_speed = PRN("Yaw gear ratio (1 : ?)")/PRN("Types of Yaw PIVOT")
+
+    offset_x = PRN("offset x (m)")
+    offset_y = PRN("offset y (m)")
+    offset_z = PRN("offset z (m)")
+
+    --ゼロ除算対策
+    if pitch_pivot_speed ~= pitch_pivot_speed then
+        pitch_pivot_speed = 1
+    end
+    if yaw_pivot_speed ~= yaw_pivot_speed then
+        yaw_pivot_speed = 1
+    end
+
+    detected = INB(1)
+    power = INB(2)
     reload = INB(5)
 
     range = false
 
     V0, K, tick_del, WI = parameter[Weapon][1]/60, parameter[Weapon][2], parameter[Weapon][3], parameter[Weapon][4]
 
-    --補足時(1)かつ起動時(2)
-    if INB(1) and INB(2) then
+    --オフセット
+    physics_x, physics_z, physics_y = Local2World(offset_x, offset_y, offset_z, physics_x, physics_y, physics_z, euler_x, euler_y, euler_z)
+
+    --自分基準ワールド座標系へ
+    target_x, target_y, target_z = target_x - physics_x, target_y - physics_z, target_z - physics_y
+
+    --補足時かつ起動時
+    if detected and power then
         --遅れ補正
-        target_x, target_y, target_z = cal_future_position(target_x, target_y, target_z, target_vx, target_vy, target_vz, INN(29))
+        target_x, target_y, target_z = cal_future_position(target_x, target_y, target_z, target_vx, target_vy, target_vz, delay)
         --ワールド速度
         world_vx, world_vy, world_vz = Local2World(physics_vx, physics_vz, physics_vy, 0, 0, 0, euler_x, euler_y, euler_z)
         world_vxy = distance2(world_vx, world_vy)
@@ -411,188 +481,88 @@ function onTick()
             end
             tick_pre = tick
         end
-
-        --視線角速度計算
-        target_local_x, target_local_y, target_local_z = World2Local(INN(1), INN(2), INN(3), physics_x, physics_y, physics_z, euler_x, euler_y, euler_z)
-        target_local_vx, target_local_vy, target_local_vz = World2Local(target_vx, target_vy, target_vz, 0, 0, 0, euler_x, euler_y, euler_z)
-        sum_x, sum_y, sum_z = target_local_x + target_local_vx - physics_vx, target_local_y + target_local_vy - physics_vz, target_local_z + target_local_vz - physics_vy
-        rotation_speed_pitch = atan2(distance2(sum_x, sum_y), sum_z) - atan2(distance2(target_local_x, target_local_y), target_local_z)
-        rotation_speed_yaw = atan2(sum_y, sum_x) - atan2(target_local_y, target_local_x)
     else
         Azimuth, Elevation = 0, 0
         range = false
         rotation_speed_pitch, rotation_speed_yaw = 0, 0
     end
 
-    if not range then
+    --スタビライザー
+    if range then
+        --向くべき座標計算
+        controll_x = physics_x + infty*math.sin(Azimuth)
+        controll_y = physics_z + infty*math.cos(Azimuth)
+        controll_z = physics_y + infty*math.tan(Elevation)
+        controll_local_x, controll_local_y, controll_local_z = World2Local(controll_x, controll_y, controll_z, physics_x, physics_y, physics_z, euler_x, euler_y, euler_z)
+        
+        --視線角速度計算
+        los_rvx, los_rvy, los_rvz = los_rv(physics_x, physics_y, physics_z, euler_x, euler_y, euler_z, physics_vx, physics_vy, physics_vz, physics_rvx, physics_rvy, physics_rvz, target_x, target_y, target_z, target_vx, target_vy, target_vz)
+
+        --向くべき未来位置計算
+        controll_stabi_x, controll_stabi_y, controll_stabi_z = stabi_future_angle(controll_local_x, controll_local_y, controll_local_z, los_rvx, los_rvy, los_rvz, stabi_delay)
+        controll_pitch, controll_yaw = Local2Polar(controll_stabi_x, controll_stabi_y, controll_stabi_z, false)
+        controll_yaw = same_rotation(controll_yaw - standby)
+
+        if reload then
+            controll_pitch = 0
+        end
+    else
+        controll_pitch, controll_yaw = 0, 0
+        controll_local_x, controll_local_y, controll_local_z = 0, 1, 0
+        pitch_error, yaw_error = 0, 360
         tick = 0
     end
 
-    OUN(30, tick)
-    OUN(31, Elevation)
-    OUN(32, Azimuth)
+    --射撃可能判定用誤差計算
+    goal_pitch, goal_yaw = Local2Polar(controll_local_x, controll_local_y, controll_local_z, false)
+    goal_yaw = same_rotation(goal_yaw - standby)
+    pitch_error = math.abs(same_rotation(goal_pitch - pitch_position))*360
+    yaw_error = math.abs(same_rotation(goal_yaw - yaw_position))*360
 
-    --ゼロ除算対策
-    if pitch_pivot_speed ~= pitch_pivot_speed then
-        pitch_pivot_speed = 1
+    --射撃可能判定
+    position_in_fov = same_rotation(yaw_position) > min_yaw and same_rotation(yaw_position) < max_yaw and pitch_position > min_pitch and pitch_position < max_pitch
+    target_in_fov_pitch = goal_pitch > min_pitch and goal_pitch < max_pitch
+    target_in_fov_yaw = goal_yaw > min_yaw and goal_yaw < max_yaw
+    in_error = pitch_error < error_range and yaw_error < error_range
+    shootable = range and in_error and position_in_fov and target_in_fov_pitch and target_in_fov_yaw and not reload
+
+    --fov外処理
+    if not target_in_fov_pitch and pitch_limit then
+        controll_pitch = 0
     end
-    if yaw_pivot_speed ~= yaw_pivot_speed then
-        yaw_pivot_speed = 1
+    if not target_in_fov_yaw and yaw_limit then
+        controll_yaw = 0
     end
 
-    if reload then
-        Elevation = 0
-    end
-
-    P = PRN("P")
-    I = PRN("I")
-    D = PRN("D")
-
-    --向くべき座標計算
-    controll_x = physics_x + infty*math.sin(Azimuth)
-    controll_y = physics_z + infty*math.cos(Azimuth)
-    controll_z = physics_y + infty*math.tan(Elevation)
-    local_controll_x, local_controll_y, local_controll_z = World2Local(controll_x, controll_y, controll_z, physics_x, physics_y, physics_z, euler_x, euler_y, euler_z)
-
-    --旧スタビ
-    if range then
-        --ローカル座標から目標回転数へ
-        target_pitch = 0.5*atan2(distance2(local_controll_x, local_controll_y), local_controll_z)/math.pi
-        target_yaw = same_rotation(0.5*atan2(local_controll_y, local_controll_x)/math.pi - standby)
-
-        --スタビライザー
-        local_rx, local_ry, local_rz = World2Local(physics_rx, physics_rz, physics_ry, 0, 0, 0, euler_x, euler_y, euler_z)
-        stabi_rad = same_rotation(yaw_position + standby)*2*math.pi
-        pitch_stabi = -pitch_pivot_speed*(local_rx*math.cos(stabi_rad) - local_ry*math.sin(stabi_rad))
-        yaw_stabi = -yaw_pivot_speed*local_rz
-
-        if (rotation_limit and math.abs(target_yaw) > fov) or (target_pitch < min_elevation or target_pitch > max_elevation) then
-            target_pitch = 0
-            target_yaw = 0
-        end
+    --差分へ
+    pitch_diff = controll_pitch - pitch_position
+    if yaw_limit then
+        yaw_diff = controll_yaw - yaw_position
     else
-        target_pitch = 0
-        target_yaw = 0
-    end
-
-
-
-    --スタビライザー
-    if range then
-        yaw_position_rad = yaw_position*pi2
-
-
-        --追尾座標決定
-        if not tracking and laser and distance ~= 4000 and distance ~= 0 then
-            tracker_x, tracker_y, tracker_z = target_x, target_y, target_z
-            tracking = true
-        end
-        --追尾
-        if tracking then
-            pitch_controll, yaw_controll = 0, 0
-            stabi_x, stabi_y, stabi_z = tracker_x, tracker_y, tracker_z
-            target_x, target_y, target_z = tracker_x, tracker_y, tracker_z
-            tracking_physics_x, tracking_physics_z, tracking_physics_y = Local2World(-offset_x, -offset_y, -offset_z, physics_x, physics_y, physics_z, euler_x_laser, euler_y_laser, euler_z_laser)
-            tracker_local_x, tracker_local_y, tracker_local_z = World2Local(tracker_x, tracker_y, tracker_z, tracking_physics_x, tracking_physics_y, tracking_physics_z, euler_x_body, euler_y_body, euler_z_body)
-        end
-
-
-        --基準ローカルベクトルへ変換
-        stabi_local_x, stabi_local_y, stabi_local_z = World2Local(stabi_x, stabi_y, stabi_z, tracking_physics_x, tracking_physics_y, tracking_physics_z, euler_x_body, euler_y_body, euler_z_body)
-
-
-        --基準ワールドベクトル更新
-        stabi_x, stabi_y, stabi_z = Local2World(stabi_local_x, stabi_local_y, stabi_local_z, tracking_physics_x, tracking_physics_y, tracking_physics_z, euler_x_body, euler_y_body, euler_z_body)
-        
-        --角速度変換(スタビライザー)
-        local_rvx, local_rvy, local_rvz = World2Local(physics_rvx, physics_rvz, physics_rvy, 0, 0, 0, euler_x_body, euler_y_body, euler_z_body)
-        if tracking then
-            local_target_rvx = los_rv(tracker_local_y, tracker_local_z, -physics_vz, -physics_vy)
-            local_target_rvy = los_rv(tracker_local_z, tracker_local_x, -physics_vy, -physics_vx)
-            local_target_rvz = los_rv(tracker_local_x, tracker_local_y, -physics_vx, -physics_vz)
-            local_rvx = local_rvx - local_target_rvx
-            local_rvy = local_rvy - local_target_rvy
-            local_rvz = local_rvz - local_target_rvz
-        end
-        
-        --レーザースタビ
-        stabi_laser_x, stabi_laser_y, stabi_laser_z = stabi_future_angle(stabi_local_x, stabi_local_y, stabi_local_z, -local_rvx, -local_rvy, -local_rvz, stabi_delay_laser)
-        stabi_pitch, stabi_yaw = Local2Polar(stabi_laser_x, stabi_laser_y, stabi_laser_z, false)
-        laser_y = 8*stabi_pitch
-
-        --ピッチスタビ
-        stabi_pivot_x, stabi_pivot_y, stabi_pivot_z = stabi_future_angle(stabi_local_x, stabi_local_y, stabi_local_z, -local_rvx, -local_rvy, -local_rvz, stabi_delay_pivot)
-        stabi_pitch, stabi_pitch = Local2Polar(stabi_pivot_x, stabi_pivot_y, stabi_pivot_z, false)
-        pitch_diff = gear*same_rotation(stabi_pitch + manual_pitch_direc - pitch_position)/pivot
-        pitch, stabi_pitch_error_sum, stabi_pitch_error_pre = PID(P, I, D, 0, -pitch_diff, stabi_pitch_error_sum, stabi_pitch_error_pre, -gear*max_speed_gain/pivot, gear*max_speed_gain/pivot)
-
-        --ヨースタビ
-        stabi_pivot_x, stabi_pivot_y, stabi_pivot_z = stabi_future_angle(stabi_local_x, stabi_local_y, stabi_local_z, -local_rvx, -local_rvy, -local_rvz, stabi_delay_pivot)
-        stabi_pitch, stabi_yaw = Local2Polar(stabi_pivot_x, stabi_pivot_y, stabi_pivot_z, false)
-        yaw_diff = gear*same_rotation(stabi_yaw + manual_yaw_direc - yaw_position)/pivot
-        yaw, stabi_yaw_error_sum, stabi_yaw_error_pre = PID(P, I, D, 0, -yaw_diff, stabi_yaw_error_sum, stabi_yaw_error_pre, -gear*max_speed_gain/pivot, gear*max_speed_gain/pivot)
-    
-    --手動操作
-    else
-        tracking = false
-        stabi_yaw_error_sum, stabi_yaw_error_pre = 0, 0
-
-        laser_y = clamp(gain*rad_not_liner*8*pitch_controll/60 + laser_y, -1, 1)
-        yaw = gain*rad_not_liner*yaw_controll*gear/pivot
-    end
-
-    --パルス生成
-    stabilizer_pulse = stabilizer or tracker
-    tracker_pulse = tracker
-
-
-
-    --目標回転数から差分へ
-    pitch_error = target_pitch - pitch_position
-    pitch_speed = pitch_pivot_speed*(pitch_error)
-    same_yaw = same_rotation(yaw_position)
-    if rotation_limit then
-        yaw_error = target_yaw - same_yaw
-        yaw_speed = yaw_pivot_speed*(yaw_error)
-    else
-        yaw_error = same_rotation(target_yaw - yaw_position)
-        yaw_speed = yaw_pivot_speed*same_rotation(yaw_error)
+        yaw_diff = same_rotation(controll_yaw - yaw_position)
     end
 
     --PID
-    pitch_PID, error_sum_pitch, error_pre_pitch = PID(P, I, D, 0, -pitch_speed, error_sum_pitch, error_pre_pitch, -pitch_pivot_speed*max_speed_gain, pitch_pivot_speed*max_speed_gain)
-    yaw_PID, error_sum_yaw, error_pre_yaw = PID(P, I, D, 0, -yaw_speed, error_sum_yaw, error_pre_yaw, -yaw_pivot_speed*max_speed_gain, yaw_pivot_speed*max_speed_gain)
-
-    --視線角速度変換(rad/tick -> /s)
-    rotation_speed_pitch = rotation_speed_pitch*pitch_pivot_speed*30/math.pi
-    rotation_speed_yaw = rotation_speed_yaw*yaw_pivot_speed*30/math.pi
-
-    --射撃可能判定
-    in_fov = math.abs(same_yaw) < fov and pitch_position > min_elevation and pitch_position < max_elevation
-    position = math.abs(pitch_error) < error_range/360 and math.abs(yaw_error) < error_range/360
-    shootable = range and position and in_fov and not reload
-
-    OUN(3, pitch_error*360)
-    OUN(4, yaw_error*360)
-
-    if not (range and in_fov) then
-        pitch_stabi, yaw_stabi = 0, 0
-        rotation_speed_pitch, rotation_speed_yaw = 0, 0
-    end
-
-    --合成
-    pitch = clamp(pitch_PID + pitch_stabi + rotation_speed_pitch, -pitch_pivot_speed*max_speed_gain, pitch_pivot_speed*max_speed_gain)
-    yaw = clamp(yaw_PID + yaw_stabi + rotation_speed_yaw, -yaw_pivot_speed*max_speed_gain, yaw_pivot_speed*max_speed_gain)
+    pitch, error_sum_pitch, error_pre_pitch = PID(P, I, D, 0, -pitch_diff*pitch_pivot_speed, error_sum_pitch, error_pre_pitch, -pitch_pivot_speed*max_speed_gain, pitch_pivot_speed*max_speed_gain)
+    yaw, error_sum_yaw, error_pre_yaw = PID(P, I, D, 0, -yaw_diff*yaw_pivot_speed, error_sum_yaw, error_pre_yaw, -yaw_pivot_speed*max_speed_gain, yaw_pivot_speed*max_speed_gain)
 
     --ピッチ角制限
-    pitch = limit_rotation(pitch, pitch_position, min_elevation, max_elevation)
-
+    if pitch_limit then
+        pitch = limit_rotation(pitch, same_rotation(pitch_position), min_pitch, max_pitch)
+    end
     --ヨー角制限
-    if rotation_limit then
-        yaw = limit_rotation(yaw, same_yaw, -fov, fov)
+    if yaw_limit then
+        yaw = limit_rotation(yaw, same_rotation(yaw_position), min_yaw, max_yaw)
     end
 
     OUN(1, pitch)
     OUN(2, yaw)
     OUB(1, shootable)
+
+    OUN(3, pitch_error)
+    OUN(4, yaw_error)
+
+    OUN(30, tick)
+    OUN(31, Elevation)
+    OUN(32, Azimuth)
 end
