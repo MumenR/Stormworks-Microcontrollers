@@ -59,6 +59,8 @@ idling_error_pre = 0
 idling_error_sum = 0
 clutch_error_pre = 0
 clutch_error_sum = 0
+throttle_error_pre = 0
+throttle_error_sum = 0
 
 --PID制御
 function PID(P, I, D, target, current, error_sum_pre, error_pre, min, max)
@@ -67,13 +69,15 @@ function PID(P, I, D, target, current, error_sum_pre, error_pre, min, max)
     error_sum = error_sum_pre + error
     error_diff = error - error_pre
     controll = P*error + I*error_sum + D*error_diff
-
+    
     if controll > max or controll < min then
-        error_sum = error_sum_pre
+        if (controll > max and error_sum_pre > 0) or (controll < min and error_sum_pre < 0)  then
+            error_sum = error_sum_pre
+        end
         controll = P*error + I*error_sum + D*error_diff
     end
 
-    return controll, error_sum, error
+    return clamp(controll, min, max), error_sum, error
 end
 
 --0or1変換
@@ -98,7 +102,7 @@ function onTick()
     air_volume = INN(1)
     fuel_volume = INN(2)
     temp = INN(3)
-    throttle = math.abs(INN(4))
+    target_prop_rps = INN(4)/60
     engine_rps = INN(5)
     air_pressure = INN(6)
     battery = INN(7)
@@ -108,25 +112,32 @@ function onTick()
     min_temp = INN(9)
     max_battery = INN(10)
     min_battery = INN(11)
-    idling_rps = INN(12)
-    idling_gene_rps = INN(13)
     target_rps = INN(14)
     thermal_throttling_rps = INN(15)
     max_rps = INN(16)
     target_af_ratio = INN(17)
-    idling_P = INN(18)
-    idling_I = INN(19)
-    idling_D = INN(20)
     idling_rps_fuel = INN(21)
     clutch_P = INN(22)
     clutch_I = INN(23)
     clutch_D = INN(24)
-
-
     power = INN(25) == 1
+    prop_rps = INN(26)
+    throttle_P = INN(27)
+    throttle_I = INN(28)
+    throttle_D = INN(29)
+    collective = math.abs(INN(30))
 
     --スターター
     starter = power and engine_rps < min_engine_rps
+
+    --空気係数と最大燃料値
+    air_coefficient = (0.4*target_af_ratio)/(air_pressure*0.029 + 2.75)
+    max_fuel = 1/air_coefficient
+
+    --サーマルスロットリング
+    if temp > thermal_throttling_temp then
+        target_rps = thermal_throttling_rps
+    end
 
     --ラジエーター
     if temp > max_temp then
@@ -144,48 +155,20 @@ function onTick()
     end
     generator = generator_sr and not starter
 
-    --アイドリング時の目標回転数
-    if generator then
-        idling_rps = idling_gene_rps
-    end
-
-    --アイドリング
-    idling = power and throttle < 0.01 and not starter
-    if idling then
-        idling_PID, idling_error_sum, idling_error_pre = PID(idling_P, idling_I, idling_D, idling_rps, engine_rps, idling_error_sum, idling_error_pre, -idling_rps_fuel, max_fuel)
+    --スロットルPID
+    if power and not starter then
+        throttle, throttle_error_sum, throttle_error_pre = PID(throttle_P, throttle_I, throttle_D, target_rps, engine_rps, throttle_error_sum, throttle_error_pre, -idling_rps_fuel*100/max_fuel, 100*(1 - idling_rps_fuel/max_fuel))
     else
-        idling_PID, idling_error_sum, idling_error_pre = 0, 0 ,0
-    end
-
-    --空気係数と最大燃料値
-    air_coefficient = (0.4*target_af_ratio)/(air_pressure*0.029 + 2.75)
-    max_fuel = 1/air_coefficient
-    
-
-    --スロットル制御
-    if power and engine_rps < max_rps then
-        if starter then
-            fuel = max_fuel
-        else
-            if throttle > 0.01 then
-                fuel = throttle*(max_fuel - idling_rps_fuel) + idling_rps_fuel
-            else
-                fuel = clamp(idling_PID + idling_rps_fuel, 0, max_fuel)
-            end
-        end
-    else
-        fuel = 0
-    end
-    air = fuel*air_coefficient
-
-    --サーマルスロットリング
-    if temp > thermal_throttling_temp then
-        target_rps = thermal_throttling_rps
+        throttle_error_sum, throttle_error_pre = 0, 0
+        throttle = 0
     end
 
     --クラッチPID
-    if power and throttle > 0.01 and not starter then
-        clutch_PID, clutch_error_sum, clutch_error_pre = PID(clutch_P*throttle, clutch_I*throttle, clutch_D*throttle, target_rps, engine_rps, clutch_error_sum, clutch_error_pre, -100, 0)
+    clutch_P = clutch_P*(0.01 + (target_prop_rps^2)*(collective^2)/10000)
+    clutch_I = clutch_I*(0.01 + (target_prop_rps^2)*(collective^2)/10000)
+    clutch_D = clutch_D*(0.01 + (target_prop_rps^2)*(collective^2)/10000)
+    if power and not starter then
+        clutch_PID, clutch_error_sum, clutch_error_pre = PID(clutch_P, clutch_I, clutch_D, target_prop_rps, prop_rps, clutch_error_sum, clutch_error_pre, 0, 100)
     else
         clutch_PID, clutch_error_sum, clutch_error_pre = 0, 0, 0
     end
@@ -194,18 +177,27 @@ function onTick()
     if starter then
         clutch = 0
     else
-        clutch = clamp((-clutch_PID/100), 0, 1)^(1/6)
+        clutch = (clutch_PID/100)^(1/6)
     end
 
-    --発電機ギア
-    generator_gear = generator and idling
+    --スロットル制御
+    if power and engine_rps < max_rps then
+        if starter then
+            fuel = max_fuel
+        else
+            fuel = (throttle/100)*max_fuel + idling_rps_fuel
+        end
+    else
+        fuel = 0
+    end
+    air = fuel*air_coefficient
 
     --num変換
     starter_num = bool2num(starter)
     radiator_num = bool2num(radiator)
     generator_num = bool2num(generator)
 
-    OUN(1, throttle*100)
+    OUN(1, 100*fuel/max_fuel)
     OUN(2, engine_rps*60)
     OUN(3, temp)
     OUN(4, battery*100)
@@ -221,7 +213,6 @@ function onTick()
     OUB(2, starter)
     OUB(3, radiator)
     OUB(4, generator)
-    OUB(5, generator_gear)
 end
 
 
