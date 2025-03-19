@@ -241,6 +241,16 @@ function onTick()
     show_attitude = PRB("attitude bars")
     show_horizon = PRB("horizon line")
     show_center = PRB("center marker")
+    laser_direction = PRB("laser direction")
+
+    --レーザー方向補正
+    if laser_direction then
+        Lx, Ly, Lz = World2Local(0, 0, -1, 0, 0, 0, euler_x, euler_y, euler_z)
+        Lx, Ly, Lz = World2Local(Lx, Ly, Lz, 0, 0, 0, pi2/4, 0, 0)
+        Lpi, Lya, Ldi = Rect2Polar(Lx, Ly, Lz, false)
+        OUN(1, Lya*8)
+        OUN(2, Lpi*8)
+    end
 end
 
 function onDraw()
