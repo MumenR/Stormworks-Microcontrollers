@@ -101,6 +101,14 @@
 			"path": "products/Logic/ICBM Type 0"
 		},
 		{
+			"name": "Map V1",
+			"path": "products/Logic/Map V1"
+		},
+		{
+			"name": "Map V2",
+			"path": "products/Logic/Map V2"
+		},
+		{
 			"name": "Oxygen concentration meter V1",
 			"path": "products/Logic/Oxygen concentration meter V1"
 		},
@@ -113,8 +121,12 @@
 			"path": "products/Logic/Search Radar V1"
 		},
 		{
-			"name": "Simple map V1",
-			"path": "products/Logic/Simple map V1"
+			"name": "Search Radar V2",
+			"path": "products/Logic/Search Radar V2"
+		},
+		{
+			"name": "Search Radar V3",
+			"path": "products/Logic/Search Radar V3"
 		},
 		{
 			"name": "SM Type 1",

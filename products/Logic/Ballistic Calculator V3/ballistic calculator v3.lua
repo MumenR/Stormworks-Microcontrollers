@@ -139,7 +139,7 @@ end
 --到達チックをy方向から逆算
 function dichotomy(tick_min, tick_max, tick, V0, a, target_y, reverse)
     local y
-    for i = 1, 15 do
+    for i = 1, 20 do
         y = cal_Trajectory(V0, a, tick)
         if y*reverse > target_y*reverse then
             tick_max = tick
@@ -365,7 +365,9 @@ function onTick()
             --曲射ループ
             for k = 1, 2 do
                 --イテレーション
-                for j = 1, 30 do
+                for j = 1, 60 do
+                    Iteration_j = j
+
                     --砲弾方向に風とビークル速度を成分分解
                     --yが砲弾前進方向
                     goal_y = future_xy*math.cos(atan2(future_y, future_x) - Azimuth)
@@ -445,10 +447,9 @@ function onTick()
                         Elevation = Elevation + atan2(goal_y, future_z) - atan2(y, z)
                     end
 
-                    Iteration_j = j
                 end
 
-                range = tick < tick_del and Iteration_j ~= 30
+                range = tick < tick_del and Iteration_j ~= 60
 
                 --曲射ループへ
                 if INB(4) and k < 2 and range then
