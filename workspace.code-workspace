@@ -117,18 +117,6 @@
 			"path": "products/Logic/Screw controller V1"
 		},
 		{
-			"name": "Search Radar V1",
-			"path": "products/Logic/Search Radar V1"
-		},
-		{
-			"name": "Search Radar V2",
-			"path": "products/Logic/Search Radar V2"
-		},
-		{
-			"name": "Search Radar V3",
-			"path": "products/Logic/Search Radar V3"
-		},
-		{
 			"name": "SM Type 1",
 			"path": "products/Logic/SM Type 1"
 		},
@@ -147,6 +135,18 @@
 		{
 			"name": "Spd and Alt disolay V3",
 			"path": "products/Logic/Spd and Alt disolay V3"
+		},
+		{
+			"name": "SR V1",
+			"path": "products/Logic/SR V1"
+		},
+		{
+			"name": "SR V2",
+			"path": "products/Logic/SR V2"
+		},
+		{
+			"name": "SR V3",
+			"path": "products/Logic/SR V3"
 		},
 		{
 			"name": "Sub Hatch Controller V1",

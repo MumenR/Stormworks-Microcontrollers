@@ -50,12 +50,14 @@ INB = input.getBool
 OUN = output.setNumber
 OUB = output.setBool
 PRN = property.getNumber
+PRB = property.getBool
 
 default_zoom = 0.5
 WP = {{0, 0}}
 Wv_data = {}
 AP = false
 my_location_toggle = true
+zoom_out_toggle = false
 
 --x = 0 ~ 1
 --min = 最小ズームの時のマップのズーム値
@@ -148,32 +150,6 @@ function Rect2Polar(x, y, z, radian_bool)
     end
 end
 
---ビークルマーカー描画
-function vehicle_marker(map_x, map_y, zoom, w, h, Px, Pz, compass)
-    local pixel_w, pixel_h, x1, x2, y1, y2
-    pixel_w, pixel_h = map.mapToScreen(map_x, map_y, zoom, w, h, Px, Pz)
-    x1 = pixel_w - 2*math.sin(compass)
-    y1 = pixel_h - 2*math.cos(compass)
-    x2 = pixel_w - 6*math.sin(compass)
-    y2 = pixel_h - 6*math.cos(compass)
-    screen.setColor(0, 0, 200)
-    screen.drawCircle(pixel_w, pixel_h, 2)
-    screen.drawLine(x1, y1, x2, y2)
-end
-
---縮尺フォーマット(x[m])
-function format_distance(x)
-    local x_txt
-    if x < 10000 then
-        x_txt = string.format("%.0fm", x)
-    elseif WP_dist/1000 < 100 then
-        x_txt = string.format("%.1fkm", x/1000)
-    else
-        x_txt = string.format("%.0fkm", x/1000)
-    end
-    return x_txt
-end
-
 yaw_error_pre = 0
 yaw_error_sum = 0
 
@@ -190,6 +166,62 @@ function PID(P, I, D, target, current, error_sum_pre, error_pre, min, max)
         controll = P*error + I*error_sum + D*error_diff
     end
     return clamp(controll, min, max), error_sum, error
+end
+
+--ビークルマーカー描画
+function vehicle_marker(map_x, map_y, zoom, w, h, Px, Pz, compass)
+    local pixel_w, pixel_h, x1, x2, y1, y2
+    pixel_w, pixel_h = map.mapToScreen(map_x, map_y, zoom, w, h, Px, Pz)
+    x1 = pixel_w - 2*math.sin(compass)
+    y1 = pixel_h - 2*math.cos(compass)
+    x2 = pixel_w - 6*math.sin(compass)
+    y2 = pixel_h - 6*math.cos(compass)
+    screen.drawCircle(pixel_w, pixel_h, 2)
+    screen.drawLine(x1, y1, x2, y2)
+end
+
+--縮尺フォーマット(x[m])
+function format_distance(x)
+    local x_txt
+    if x < 10000 then
+        x_txt = string.format("%.0fm", x)
+    elseif x/1000 < 100 then
+        x_txt = string.format("%.1fkm", x/1000)
+    else
+        x_txt = string.format("%.0fkm", x/1000)
+    end
+    return x_txt
+end
+
+--縮尺描画
+function drawScale(zoom, w, h)
+    local scale, size, i, scale_px, scale_txt
+    zoom = zoom*1000
+    --基準スケールサイズ
+    size = zoom/5
+    i = 0
+    while size >= 10 do
+        size = size/10
+        i = i + 1
+    end
+    --キリの良いサイズに
+    if size < 2 then
+        scale = 1
+    elseif size < 5 then
+        scale = 2
+    else
+        scale = 5
+    end
+    scale = scale*10^i
+    scale_px = math.floor(w*scale/zoom)
+    --テキストフォーマット
+    if scale < 1000 then
+        scale_txt = string.format("%.0fm", scale)
+    else
+        scale_txt = string.format("%.0fkm", scale/1000)
+    end
+    screen.drawRectF(clamp(w*4.5/5 - 1, 0, w - 10) - scale_px/2 , h - 10, scale_px, 3)
+    screen.drawText(clamp(w*4.5/5 - 1, 0, w - 10) - #scale_txt*2.5, h - 6, scale_txt)
 end
 
 function onTick()
@@ -286,6 +318,7 @@ function onTick()
             --ズームアウト
             elseif touch_2 then
                 zoom_manual = clamp(zoom_manual - zoom_speed, 0, 1)
+                zoom_out_toggle = true
                 touch_t1 = 0
             --ズームイン
             elseif touch_t1 > tap_tick then
@@ -297,12 +330,13 @@ function onTick()
             end
         else
             --カウントリセット
-            if touch_1_pulse and (touch_t2 > 0 or touch_t1 > tap_tick) then
+            if (touch_1_pulse and (touch_t2 > 0 or touch_t1 > tap_tick)) or zoom_out_toggle then
                 touch_t1, touch_t2 = 0, 0
             --タップからの経過時間計測
             elseif touch_t1 <= tap_tick and touch_t1 > 0 then
                 touch_t2 = touch_t2 + 1
             end
+            zoom_out_toggle = false
 
             --1タップ、中心座標更新
             if touch_t2 >= tap_tick then
@@ -358,7 +392,6 @@ function onTick()
     WP_dist_text = format_distance(WP_dist)
     --縮尺フォーマット
     zoom = cal_mapzooom(zoom_manual, zoom_min, zoom_max)
-    zoom_text = format_distance(zoom*1000)
 
     --オートパイロットの切り替え
     if AP_push and not AP_pulse then
@@ -412,10 +445,6 @@ function onDraw()
     w = screen.getWidth()
     h = screen.getHeight()
 
-    screen.drawMap(map_x, map_y, zoom)
-    screen.setColor(0, 255, 0)
-    screen.drawText(w - 5*#zoom_text, h - 6, zoom_text)
-
     --ウェイポイントマーカー
     if WP_detected then
         for i = 2, #WP do
@@ -424,25 +453,21 @@ function onDraw()
             WP_map_x2, WP_map_y2 = map.mapToScreen(map_x, map_y, zoom, w, h, WP[i - 1][1], WP[i - 1][2])
 
             --直線補完
-            screen.setColor(255, 127, 0)
+            screen.setColor(0, 255, 0)
             screen.drawLine(WP_map_x1, WP_map_y1, WP_map_x2, WP_map_y2)
 
             --ウェイポイントマーカー
             screen.setColor(255, 0, 0)
             screen.drawCircleF(WP_map_x1, WP_map_y1, 1.5)
-            --[[
-            screen.drawLine(WP_map_x - 2, WP_map_y - 2, WP_map_x + 3, WP_map_y + 3)
-            screen.drawLine(WP_map_x - 2, WP_map_y + 2, WP_map_x + 3, WP_map_y - 3)
-            ]]
         end
 
         --距離
-        screen.setColor(255, 127, 0)
-        screen.drawText(1, 1, "D:"..WP_dist_text)
+        screen.setColor(0, 255, 0)
+        screen.drawText(1, 1, "WP:"..WP_dist_text)
     end
 
-
     --ビークルマーカー
+    screen.setColor(0, 0, 255)
     vehicle_marker(map_x, map_y, zoom, w, h, Px, Pz, compass)
 
     --ボタン下地
@@ -476,4 +501,7 @@ function onDraw()
         screen.drawText(3 + 9*i, h-6 ,list[i + 1])
     end
 
+    --縮尺
+    screen.setColor(0, 255, 0)
+    drawScale(zoom, w, h)
 end

@@ -170,6 +170,3 @@ function onDraw()
     scale = string.format("%.1fkm", km)
     screen.drawText(w - 5*#scale, h - 5, scale)
 end
-
-
-

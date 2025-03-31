@@ -96,6 +96,8 @@ function onDraw()
         scale = 2
     elseif num < 7.5 then
         scale = 5
+    else
+        scale = 10
     end
     scale = scale*10^i
 

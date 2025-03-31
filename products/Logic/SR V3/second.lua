@@ -53,6 +53,7 @@ INN = input.getNumber
 INB = input.getBool
 OUN = output.setNumber
 OUB = output.setBool
+PRN = property.getNumber
 
 data_pos = {}
 target = {}
@@ -100,7 +101,8 @@ function nextID()
 end
 
 function onTick()
-    t_max = property.getNumber("target lost tick")
+    t_max = PRN("target lost tick")
+    min_dist = PRN("Vehicle radius [m]")
 
     --フィジックス情報取り込み
     --遅延生成
@@ -134,9 +136,9 @@ function onTick()
     --データ取り込み
     --data_polar[チャンネル][極座標]
     data_polar = {}
-    for i = 1, 8 do
-        if INB(i) then
-            table.insert(data_polar, {INN(i*3 - 2), INN(i*3 - 1), INN(i*3)})
+    for i = 0, 7 do
+        if INB(i + 1) and INN(i*3 + 1) >= min_dist then
+            table.insert(data_polar, {INN(i*3 + 1), INN(i*3 + 2), INN(i*3 + 3)})
         end
     end
 
@@ -157,7 +159,7 @@ function onTick()
         y1 = data_world[i][2]
         z1 = data_world[i][3]
         
-        error_range = 0.01*distance3(x1, y1, z1, Px, Pz, Py)
+        error_range = 0.05*distance3(x1, y1, z1, Px, Pz, Py)
 
         for j = 1, i - 1 do
             x2 = data_world[j][1]
@@ -176,7 +178,7 @@ function onTick()
 
     --目標同定
     --target[座標, ID, 時間]
-    max_movement = 300
+    max_movement = 100
     for i = 1, #target do
         local x1, y1, z1, x2, y2, z2
         x1 = target[i][1]
@@ -205,11 +207,12 @@ function onTick()
         table.insert(target, {x1, y1, z1, nextID(), 0})
     end
 
-    --出力
+    --初期出力
     for i = 1, 24 do
         OUN(i, 0)
     end
 
+    --出力
     i = 0
     for j = 1, #target do
         if target[j][5] == 0 then
@@ -223,4 +226,7 @@ function onTick()
             end
         end
     end
+
+    --デバッグ
+    OUN(30, #target)
 end

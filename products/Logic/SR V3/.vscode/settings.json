@@ -37,11 +37,11 @@
     ],
     "Lua.runtime.pathStrict": true,
     "Lua.workspace.library": [
-        "c:/Users/PC_User/OneDrive/Stormworks/Microcontrollers/products/Logic/Search Radar V1/",
-        "c:/Users/PC_User/.vscode/extensions/nameouschangey.lifeboatapi-0.0.33/assets/lua/Common/",
-        "c:/Users/PC_User/.vscode/extensions/nameouschangey.lifeboatapi-0.0.33/assets/lua/Microcontroller/",
+        "c:/Users/yosuk/OneDrive/Stormworks/Microcontrollers/products/Logic/SR V3/",
+        "c:/Users/yosuk/.vscode/extensions/nameouschangey.lifeboatapi-0.0.33/assets/lua/Common/",
+        "c:/Users/yosuk/.vscode/extensions/nameouschangey.lifeboatapi-0.0.33/assets/lua/Microcontroller/",
         "C:/Users/yosuk/iCloudDrive/ドキュメント/Stormworks/Microcontrollers/products/Logic/",
-        "c:/Users/PC_User/OneDrive/Stormworks/Microcontrollers/products/Logic/Search Radar V1/_build/libs/"
+        "c:/Users/yosuk/OneDrive/Stormworks/Microcontrollers/products/Logic/SR V3/_build/libs/"
     ],
     "lifeboatapi.stormworks.libs.gitLibraries": [
         {
