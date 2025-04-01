@@ -253,6 +253,7 @@ function onTick()
 
     tap_tick = PRN("Longest tap interval [tick]")
     WP_arrival = PRN("Waypoint switch arrival time [s]")
+    map_color = PRN("Map color")
 
     touch_1 = INB(1)
     touch_2 = INB(2)
@@ -413,8 +414,6 @@ function onTick()
         --pid
         yaw_PID, yaw_error_sum, yaw_error_pre = PID(P, I, D, 0, -yaw, yaw_error_sum, yaw_error_pre, -1, 1)
     else
-        WP_dist = 0
-        WP_time = 0
         yaw_PID, yaw_error_sum, yaw_error_pre = 0, 0, 0
     end
 
@@ -467,7 +466,11 @@ function onDraw()
     end
 
     --ビークルマーカー
-    screen.setColor(0, 0, 255)
+    if map_color == 2 then
+        screen.setColor(255, 255, 255)
+    else
+        screen.setColor(0, 0, 255)
+    end
     vehicle_marker(map_x, map_y, zoom, w, h, Px, Pz, compass)
 
     --ボタン下地
@@ -504,4 +507,10 @@ function onDraw()
     --縮尺
     screen.setColor(0, 255, 0)
     drawScale(zoom, w, h)
+
+    --オートパイロット表示
+    if AP then
+        screen.setColor(0, 255, 0)
+        screen.drawText(w - 11, 1, "AP")
+    end
 end

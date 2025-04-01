@@ -89,8 +89,12 @@
 			"path": "products/Logic/Fuel crusing distance meter V2"
 		},
 		{
-			"name": "HUD V1",
-			"path": "products/Logic/HUD V1"
+			"name": "HMD V1",
+			"path": "products/Logic/HMD V1"
+		},
+		{
+			"name": "HMD V2",
+			"path": "products/Logic/HMD V2"
 		},
 		{
 			"name": "Hydrofoil Controller V1",

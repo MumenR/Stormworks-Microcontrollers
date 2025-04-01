@@ -1,7 +1,3 @@
--- Author: MumenR
--- GitHub: https://github.com/MumenR/Stormworks-Microcontrollers
--- Workshop: https://steamcommunity.com/profiles/76561199060549727/myworkshopfiles/
---
 --- Developed using LifeBoatAPI - Stormworks Lua plugin for VSCode - https://code.visualstudio.com/download (search "Stormworks Lua with LifeboatAPI" extension)
 --- If you have any issues, please report them here: https://github.com/nameouschangey/STORMWORKS_VSCodeExtension/issues - by Nameous Changey
 
@@ -57,30 +53,80 @@ PRN = property.getNumber
 PRB = property.getBool
 
 data = {}
-SR_map_x, SR_map_y = 0, 0
+pi2 = math.pi*2
+fov_w = (73/360)*pi2
+fov_h = (58/360)*pi2
 
-function clamp(x, min, max)
-    if x >= max then
-        return max
-    elseif x <= min then
-        return min
-    else
-        return x
-    end
+function distance3(x1, y1, z1, x2, y2, z2)
+    return math.sqrt((x1 - x2)^2 + (y1 - y2)^2 + (z1 - z2)^2)
+end
+
+
+--ワールド座標からローカル座標へ(physics sensor使用)
+function World2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
+    local a, b, c, d, e, f, g, h, i, j, k, l, x, z, y, Lower
+	Wx = Wx - Px
+	Wy = Wy - Pz
+	Wz = Wz - Py
+	a = math.cos(Ez)*math.cos(Ey)
+	b = math.cos(Ez)*math.sin(Ey)*math.sin(Ex) - math.sin(Ez)*math.cos(Ex)
+	c = math.cos(Ez)*math.sin(Ey)*math.cos(Ex) + math.sin(Ez)*math.sin(Ex)
+	d = Wx
+	e = math.sin(Ez)*math.cos(Ey)
+	f = math.sin(Ez)*math.sin(Ey)*math.sin(Ex) + math.cos(Ez)*math.cos(Ex)
+	g = math.sin(Ez)*math.sin(Ey)*math.cos(Ex) - math.cos(Ez)*math.sin(Ex)
+	h = Wz
+	i = -math.sin(Ey)
+	j = math.cos(Ey)*math.sin(Ex)
+	k = math.cos(Ey)*math.cos(Ex)
+	l = Wy
+	Lower = ((a*f-b*e)*k + (c*e - a*g)*j + (b*g - c*f)*i)
+	x = 0
+	y = 0
+	z = 0
+	if Lower ~= 0 then
+		x = ((b*g - c*f)*l + (d*f - b*h)*k + (c*h - d*g)*j)/Lower
+		y = -((a*g - c*e)*l + (d*e - a*h)*k + (c*h - d*g)*i)/Lower
+		z = ((a*f - b*e)*l + (d*e - a*h)*j + (b*h - d*f)*i)/Lower
+	end
+	return x, z, y
+end
+
+--ローカル座標からディスプレイ座標へ変換
+function Local2Display(Lx, Ly, Lz)
+    local Dx, Dy, drawable
+    Dx = w/2 + (Lx/Ly)*(w/2)/math.tan(fov_w/2)
+    Dy = h/2 - (Lz/Ly)*(h/2)/math.tan(fov_h/2)
+    drawable = Ly > 0
+    return Dx, Dy, drawable
+end
+
+--ワールド直交座標からディスプレイ座標へ変換
+function WorldRect2Display(Wx, Wy, Wz, Ex, Ey, Ez)
+    local Lx, Ly, Lz, Dx, Dy, drawable
+
+    --ローカル座標へ変換
+    Lx, Ly, Lz = World2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
+    Lx, Ly, Lz = World2Local(Lx, Ly, Lz, 0, 0, 0, -seat_y, seat_x, 0)
+
+    --ディスプレイ座標へ変換
+    Dx, Dy, drawable = Local2Display(Lx, Ly, Lz)
+    
+    return Dx, Dy, drawable
 end
 
 function onTick()
-    map_x = INN(25)
-    map_y = INN(26)
-    zoom = INN(27)
-    Px = INN(28)
-    Pz = INN(29)
+    Px = INN(25)
+    Py = INN(26)
+    Pz = INN(27)
+    Ex = INN(28)
+    Ey = INN(29)
+    Ez = INN(30)
+    seat_x = INN(31)*pi2
+    seat_y = INN(32)*pi2
 
     delete_tick = PRN("Radar delete tick")
-    dist_circle = PRB("Distance circle")
-    dist_circle_max = math.floor(PRN("Distance circle max range [km]"))
-    centerline = PRB("Map centerline")
-    map_color = PRN("Map color")
+    dist_unit = PRN("Distance Units")
 
     --時間経過
     for ID, tgt in pairs(data) do
@@ -110,75 +156,36 @@ function onTick()
 
     --デバッグ用
     OUN(30, #data)
-    OUN(31, SR_map_x)
-    OUN(32, SR_map_y)
 end
 
 function onDraw()
-    local w, h
     w = screen.getWidth()
     h = screen.getHeight()
 
-    --マップ描画
-    if map_color == 1 then
-        --black
-        screen.setMapColorOcean(12,12,12,255)
-        screen.setMapColorShallows(30,30,30,255)
-        screen.setMapColorLand(70,70,70,255)
-        screen.setMapColorGrass(40,40,40,255)
-        screen.setMapColorSand(90,90,90,255)
-        screen.setMapColorSnow(200,200,200,255)
-        screen.setMapColorRock(55,55,55,255)
-        screen.setMapColorGravel(50,50,50,255)
-    elseif map_color == 2 then
-         --blue
-        screen.setMapColorOcean(0,5,20,255)
-        screen.setMapColorShallows(0,7,30,255)
-        screen.setMapColorLand(2,2,5,255)
-        screen.setMapColorGrass(10,10,20,255)
-        screen.setMapColorSand(5,5,10,255)
-        screen.setMapColorSnow(20,20,40,255)
-        screen.setMapColorRock(3,3,6,255)
-        screen.setMapColorGravel(4,4,8,255)
-    end
-    screen.drawMap(map_x, map_y, zoom)
-
-    --等距離円
-    if dist_circle then
-        screen.setColor(255, 255, 255, 64)
-        circle_x, circle_y = map.mapToScreen(map_x, map_y, zoom, w, h, Px, Pz)
-        for i = 1, dist_circle_max do
-            --半径計算
-            r = map.mapToScreen(0, 0, zoom, w, h, i*1000, 0)
-            screen.drawCircle(circle_x, circle_y, r - w/2)
-        end
-    end
-
-    --センターライン
-    if centerline then
-        screen.setColor(255, 255, 255, 64)
-        screen.drawLine(0, h/2, w/2 - 5, h/2)
-        screen.drawLine(w, h/2, w/2 + 5, h/2)
-        screen.drawLine(w/2, 0, w/2, h/2 - 5)
-        screen.drawLine(w/2, h, w/2, h/2 + 5)
-    end
-
-    --レーダー反応
+    --レーダー反応描画
+    screen.setColor(0, 255, 0)
     for ID, tgt in pairs(data) do
-        --座標変換
-        SR_map_x, SR_map_y = map.mapToScreen(map_x, map_y, zoom, w, h, tgt.x, tgt.y)
-        SR_map_x = math.floor(SR_map_x)
-        SR_map_y = math.floor(SR_map_y)
-        --色
-        alpha = clamp(510*(delete_tick - tgt.t)/delete_tick, 0, 255)
-        if tgt.z > 50 then
-            screen.setColor(255, 200, 0, alpha)
-        else
-            screen.setColor(0, 200, 255, alpha)
+        x1, y1, drawable1 = WorldRect2Display(tgt.x, tgt.y, tgt.z, Ex, Ey, Ez)
+        x1 = math.floor(x1)
+        y1 = math.floor(y1)
+        if drawable1 then
+            screen.drawRect(x1 - 4, y1 - 4, 8, 8)
+
+            --ID
+            TGTid = tostring(ID)
+            screen.drawText(x1 + 1 - 2.5*#TGTid, y1 - 10, TGTid)
+
+            --距離数値
+            tgt_dist = distance3(Px, Pz, Py, tgt.x, tgt.y, tgt.z)*dist_unit
+            if tgt_dist >= 10 then
+                TGTd = string.format("%.0f", math.floor(tgt_dist + 0.5))
+            else
+                TGTd = string.format("%.1f", math.floor(tgt_dist*10 + 0.5)/10)
+            end
+            screen.drawText(x1 + 1 - 2.5*#TGTd, y1 + 6, TGTd)
         end
-        --表示
-        screen.drawLine(SR_map_x - 2, SR_map_y, SR_map_x + 3, SR_map_y)
-        screen.drawLine(SR_map_x, SR_map_y - 2, SR_map_x, SR_map_y + 3)
-        screen.drawText(SR_map_x + 3, SR_map_y - 6, ID)
     end
 end
+
+
+

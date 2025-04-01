@@ -49,54 +49,25 @@ end
 -- try require("Folder.Filename") to include code from another file in this, so you can store code in libraries
 -- the "LifeBoatAPI" is included by default in /_build/libs/ - you can use require("LifeBoatAPI") to get this, and use all the LifeBoatAPI.<functions>!
 
-i5flip={x=12,y=12,w=12,h=12,a=false,p=false}
-
-function onTick()
-isP1 = input.getBool(1)
-isP2 = input.getBool(2)
-
-in1X = input.getNumber(3)
-in1Y = input.getNumber(4)
-in2X = input.getNumber(5)
-in2Y = input.getNumber(6)
-
-if isP1 and isInRectO(i5flip,in1X,in1Y) or isP2 and isInRectO(i5flip,in2X,in2Y) then
-if not i5flip.p then
-i5flip.a=not i5flip.a
-i5flip.p=true
-end
-else
-i5flip.p=false
-end
-output.setBool(1,i5flip.a)
-
-end
-
 function onDraw()
+    w = screen.getWidth()
+    h = screen.getHeight()
+        --マップ描画
+        if true then
+            screen.setMapColorOcean(0,5,20,255)
+            screen.setMapColorShallows(0,7,30,255)
+            screen.setMapColorLand(5,5,10,255)
+            screen.setMapColorGrass(10,10,20,255)
+            screen.setMapColorSand(2,2,5,255)
+            screen.setMapColorSnow(20,20,40,255)
+            screen.setMapColorRock(3,3,6,255)
+            screen.setMapColorGravel(3,3,3,255)
+        end
+        screen.drawMap(0, 0, 10)
 
-if i5flip.a then
-setC(0,83,0)
-screen.drawRectF(12,12,12,12)
-setC(0,0,0)
-screen.drawRectF(15,16,6,3)
-setC(71,0,0)
-screen.drawRectF(13,13,10,3)
-else
-setC(71,71,71)
-screen.drawRectF(12,12,12,12)
-setC(0,0,0)
-screen.drawRectF(15,17,6,3)
-setC(71,0,0)
-screen.drawRectF(13,20,10,3)
-end
-
-end
-
-function setC(r,g,b,a)
-if a==nil then a=255 end
-screen.setColor(r,g,b,a)
-end
-
-function isInRectO(o,px,py)
-return px>=o.x and px<=o.x+o.w and py>=o.y and py<=o.y+o.h
+        screen.setColor(255, 255, 255, 64)
+        screen.drawLine(0, h/2, w/2 - 5, h/2)
+        screen.drawLine(w, h/2, w/2 + 5, h/2)
+        screen.drawLine(w/2, 0, w/2, h/2 - 5)
+        screen.drawLine(w/2, h, w/2, h/2 + 5)
 end
