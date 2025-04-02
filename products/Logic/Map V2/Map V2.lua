@@ -211,8 +211,8 @@ function drawScale(zoom, w, h, unitL, unitL_txt, unitS, unitS_txt)
     scale_px = math.floor(w*scale/zoom)
     --テキストフォーマット
     scale_txt = string.format("%.0f", scale)..unitS_txt
-    screen.drawRectF(clamp(w*4.5/5 - 1, 0, w - 10) - scale_px/2 , h - 10, scale_px, 3)
-    screen.drawText(clamp(w*4.5/5 - 1, 0, w - 10) - #scale_txt*2.5, h - 6, scale_txt)
+    screen.drawRectF(clamp(w*4.5/5 - 1 - scale_px/2, 0, w - scale_px) , h - 10, scale_px, 3)
+    screen.drawText(clamp(w*4.5/5 - 1 - #scale_txt*2.5, 0, w - 5*#scale_txt), h - 6, scale_txt)
 end
 
 --キリの良い数に切り落とす

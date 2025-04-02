@@ -113,6 +113,10 @@
 			"path": "products/Logic/Map V2"
 		},
 		{
+			"name": "Multifunction Display V1",
+			"path": "products/Logic/Multifunction Display V1"
+		},
+		{
 			"name": "Oxygen concentration meter V1",
 			"path": "products/Logic/Oxygen concentration meter V1"
 		},
