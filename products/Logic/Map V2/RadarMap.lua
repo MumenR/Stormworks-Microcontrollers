@@ -78,9 +78,10 @@ function onTick()
 
     delete_tick = PRN("Radar delete tick")
     dist_circle = PRB("Distance circle")
-    dist_circle_max = math.floor(PRN("Distance circle max range [km]"))
+    dist_circle_max = math.floor(PRN("Distance circle max number"))
     centerline = PRB("Map centerline")
     map_color = PRN("Map color")
+    unitL = PRN("Distance units (Large)")
 
     --時間経過
     for ID, tgt in pairs(data) do
@@ -144,12 +145,12 @@ function onDraw()
     screen.drawMap(map_x, map_y, zoom)
 
     --等距離円
-    if dist_circle then
+    if dist_circle and unitL ~= 0 then
         screen.setColor(255, 255, 255, 64)
         circle_x, circle_y = map.mapToScreen(map_x, map_y, zoom, w, h, Px, Pz)
         for i = 1, dist_circle_max do
             --半径計算
-            r = map.mapToScreen(0, 0, zoom, w, h, i*1000, 0)
+            r = map.mapToScreen(0, 0, zoom, w, h, i/unitL, 0)
             screen.drawCircle(circle_x, circle_y, r - w/2)
         end
     end

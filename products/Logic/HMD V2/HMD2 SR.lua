@@ -128,6 +128,9 @@ function onTick()
     delete_tick = PRN("Radar delete tick")
     dist_unit = PRN("Distance Units")
 
+    show_radar_id = PRB("radar ID")
+    show_radar_dist = PRB("radar distance")
+
     --時間経過
     for ID, tgt in pairs(data) do
         tgt.t = tgt.t + 1
@@ -172,17 +175,21 @@ function onDraw()
             screen.drawRect(x1 - 4, y1 - 4, 8, 8)
 
             --ID
-            TGTid = tostring(ID)
-            screen.drawText(x1 + 1 - 2.5*#TGTid, y1 - 10, TGTid)
+            if show_radar_id then
+                TGTid = tostring(ID)
+                screen.drawText(x1 + 1 - 2.5*#TGTid, y1 - 10, TGTid)
+            end
 
             --距離数値
-            tgt_dist = distance3(Px, Pz, Py, tgt.x, tgt.y, tgt.z)*dist_unit
-            if tgt_dist >= 10 then
-                TGTd = string.format("%.0f", math.floor(tgt_dist + 0.5))
-            else
-                TGTd = string.format("%.1f", math.floor(tgt_dist*10 + 0.5)/10)
+            if show_radar_dist then
+                tgt_dist = distance3(Px, Pz, Py, tgt.x, tgt.y, tgt.z)*dist_unit
+                if tgt_dist >= 10 then
+                    TGTd = string.format("%.0f", math.floor(tgt_dist + 0.5))
+                else
+                    TGTd = string.format("%.1f", math.floor(tgt_dist*10 + 0.5)/10)
+                end
+                screen.drawText(x1 + 1 - 2.5*#TGTd, y1 + 6, TGTd)
             end
-            screen.drawText(x1 + 1 - 2.5*#TGTd, y1 + 6, TGTd)
         end
     end
 end

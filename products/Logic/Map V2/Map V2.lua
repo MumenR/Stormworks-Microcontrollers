@@ -51,6 +51,7 @@ OUN = output.setNumber
 OUB = output.setBool
 PRN = property.getNumber
 PRB = property.getBool
+PRT = property.getText
 
 default_zoom = 0.5
 WP = {{0, 0}}
@@ -180,48 +181,57 @@ function vehicle_marker(map_x, map_y, zoom, w, h, Px, Pz, compass)
     screen.drawLine(x1, y1, x2, y2)
 end
 
---縮尺フォーマット(x[m])
-function format_distance(x)
+--距離フォーマット(x[m])
+function format_distance(x, unitL, unitL_txt, unitS, unitS_txt)
     local x_txt
-    if x < 10000 then
-        x_txt = string.format("%.0fm", x)
-    elseif x/1000 < 100 then
-        x_txt = string.format("%.1fkm", x/1000)
+    x = x*unitS
+    if x/(unitS/unitL) < 1 then
+        x_txt = string.format("%.0f", x)..unitS_txt
+    elseif x/(unitS/unitL) < 10 then
+        x_txt = string.format("%.2f", x/(unitS/unitL))..unitL_txt
+    elseif x/(unitS/unitL) < 100 then
+        x_txt = string.format("%.1f", x/(unitS/unitL))..unitL_txt
     else
-        x_txt = string.format("%.0fkm", x/1000)
+        x_txt = string.format("%.0f", x/(unitS/unitL))..unitL_txt
     end
     return x_txt
 end
 
 --縮尺描画
-function drawScale(zoom, w, h)
-    local scale, size, i, scale_px, scale_txt
-    zoom = zoom*1000
-    --基準スケールサイズ
-    size = zoom/5
-    i = 0
-    while size >= 10 do
-        size = size/10
-        i = i + 1
+function drawScale(zoom, w, h, unitL, unitL_txt, unitS, unitS_txt)
+    local scale, scale_px, scale_txt
+    zoom = zoom*1000*unitS
+    --値が大きいとき
+    if zoom/5 >= (unitS/unitL) then
+        zoom = zoom/(unitS/unitL)
+        unitS_txt = unitL_txt
     end
-    --キリの良いサイズに
-    if size < 2 then
-        scale = 1
-    elseif size < 5 then
-        scale = 2
-    else
-        scale = 5
-    end
-    scale = scale*10^i
+    --最大桁を丸める
+    scale = align_maximum_digit_value(zoom/5)
     scale_px = math.floor(w*scale/zoom)
     --テキストフォーマット
-    if scale < 1000 then
-        scale_txt = string.format("%.0fm", scale)
-    else
-        scale_txt = string.format("%.0fkm", scale/1000)
-    end
+    scale_txt = string.format("%.0f", scale)..unitS_txt
     screen.drawRectF(clamp(w*4.5/5 - 1, 0, w - 10) - scale_px/2 , h - 10, scale_px, 3)
     screen.drawText(clamp(w*4.5/5 - 1, 0, w - 10) - #scale_txt*2.5, h - 6, scale_txt)
+end
+
+--キリの良い数に切り落とす
+function align_maximum_digit_value(num)
+    local i = 0
+    --最大桁と桁数取得
+    while num >= 10 do
+        num = num/10
+        i = i + 1
+    end
+    --最大桁を丸める
+    if num < 2 then
+        num = 1
+    elseif num < 5 then
+        num = 2
+    else
+        num = 5
+    end
+    return num*10^i
 end
 
 function onTick()
@@ -254,6 +264,11 @@ function onTick()
     tap_tick = PRN("Longest tap interval [tick]")
     WP_arrival = PRN("Waypoint switch arrival time [s]")
     map_color = PRN("Map color")
+
+    unitL = PRN("Distance units (Large)")
+    unitL_txt = PRT("Units text (Large)")
+    unitS = PRN("Distance units (Small)")
+    unitS_txt = PRT("Units text (Small)")
 
     touch_1 = INB(1)
     touch_2 = INB(2)
@@ -375,9 +390,9 @@ function onTick()
         OUN(32, WP_time)
 
         if WP_time < 0 or math.abs(WP_speed) < 0.01 then
-            WP_time = 35999
+            WP_time = 36000
         else
-            WP_time = clamp(WP_time, 0, 35999)
+            WP_time = clamp(WP_time, 0, 36000)
         end
 
         if WP_time < WP_arrival then
@@ -390,7 +405,7 @@ function onTick()
 
     --距離フォーマット
     WP_dist = distance2(Px, Pz, WPx, WPy)
-    WP_dist_text = format_distance(WP_dist)
+    WP_dist_text = format_distance(WP_dist, unitL, unitL_txt, unitS, unitS_txt)
     --縮尺フォーマット
     zoom = cal_mapzooom(zoom_manual, zoom_min, zoom_max)
 
@@ -506,7 +521,7 @@ function onDraw()
 
     --縮尺
     screen.setColor(0, 255, 0)
-    drawScale(zoom, w, h)
+    drawScale(zoom, w, h, unitL, unitL_txt, unitS, unitS_txt)
 
     --オートパイロット表示
     if AP then

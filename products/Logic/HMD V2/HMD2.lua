@@ -22,17 +22,18 @@ do
     function onLBSimulatorTick(simulator, ticks)
 
         -- NEW! button/slider options from the UI
-        simulator:setInputNumber(25, simulator:getSlider(1)*100)
-        simulator:setInputNumber(26, simulator:getSlider(2)*35999)
-        simulator:setInputNumber(27, simulator:getSlider(3))
-        simulator:setInputNumber(28, simulator:getSlider(4))
+        simulator:setInputNumber(18, simulator:getSlider(1)*0.25)
+        simulator:setInputNumber(19, simulator:getSlider(2)*0.25)
 
-        simulator:setInputNumber(19, simulator:getSlider(5))
+        simulator:setInputNumber(25, simulator:getSlider(3)*150000)
+        simulator:setInputNumber(26, simulator:getSlider(4)*35999)
+        simulator:setInputNumber(27, simulator:getSlider(5))
+        simulator:setInputNumber(28, simulator:getSlider(10))
 
-        simulator:setInputNumber(13, simulator:getSlider(6)*999)
-        simulator:setInputNumber(2, simulator:getSlider(7)*99999)
-        simulator:setInputNumber(22, simulator:getSlider(8)*999)
-        simulator:setInputNumber(20, simulator:getSlider(9)*1)
+        simulator:setInputNumber(21, simulator:getSlider(6)*30000)
+        simulator:setInputNumber(2, simulator:getSlider(7)*30000)
+        simulator:setInputNumber(13, simulator:getSlider(8)*999)
+        simulator:setInputNumber(20, simulator:getSlider(9)*999)
         
         simulator:setProperty("air speed", true)
         simulator:setProperty("ground speed", true)
@@ -44,12 +45,15 @@ do
         simulator:setProperty("horizon line", true)
         simulator:setProperty("center marker", true)
         simulator:setProperty("laser direction", true)
+        simulator:setProperty("waypoint marker", true)
+        simulator:setProperty("waypoint marker label", true)
+        simulator:setProperty("waypoint marker distance", true)
+        simulator:setProperty("waypoint distance", true)
+        simulator:setProperty("waypoint arrival time", true)
 
         simulator:setProperty("Speed Units", 1)
-        simulator:setProperty("Altitude Units", 1)
-        simulator:setProperty("Distance Units", 1)
-    
-
+        simulator:setProperty("Altitude Units", 0.001)
+        simulator:setProperty("Distance Units", 0.0005)
     end;
 end
 ---@endsection
@@ -238,10 +242,18 @@ function CanDraw(x, y)
     return x >= 0 and x <= w and y >= 0 and y <= h
 end
 
+function max_digits(max_num, unit)
+    return #tostring(math.floor(max_num*unit + 0.5))
+end
+
 function onTick()
     spd_unit = PRN("Speed Units")
     alt_unit = PRN("Altitude Units")
     dist_unit = PRN("Distance Units")
+
+    spd_max_digits = max_digits(500, spd_unit)
+    alt_max_digits = max_digits(30000, alt_unit)
+    dist_max_digits = clamp(max_digits(150000, dist_unit), 3, 100)
 
     Px = INN(1)
     Py = INN(2)
@@ -250,11 +262,11 @@ function onTick()
     Ey = INN(5)
     Ez = INN(6)
 
-    gnd_speed = INN(13)*spd_unit
+    gnd_alt = INN(21)*alt_unit
     altitude = INN(2)*alt_unit
     
+    gnd_speed = INN(13)*spd_unit
     air_speed = INN(20)*spd_unit
-    gnd_alt = INN(21)*alt_unit
 
     compass = INN(17)*pi2
     
@@ -279,6 +291,11 @@ function onTick()
     show_horizon = PRB("horizon line")
     show_center = PRB("center marker")
     laser_direction = PRB("laser direction")
+    show_WPmk = PRB("waypoint marker")
+    show_WPmk_label = PRB("waypoint marker label")
+    show_WPmk_dist = PRB("waypoint marker distance")
+    show_WP_dist = PRB("waypoint distance")
+    show_WP_time = PRB("waypoint arrival time")
 
     --レーザー方向補正
     if laser_direction then
@@ -405,38 +422,62 @@ function onDraw()
             WPd = string.format("%.1f", math.floor(WP_dist*10 + 0.5)/10)
         end
 
-        --ディスプレイ座標へ変換
-        x1, y1, drawable1 = Local2Display(Lx, Ly, Lz)
-        x1 = math.floor(x1)
-        y1 = math.floor(y1)
-        if drawable1 then
-            green()
-            screen.drawCircle(x1, y1, 5)
-            screen.drawText(x1 - 4, y1 - 11, "WP")
-            screen.drawText(x1 + 1 - 2.5*#WPd, y1 + 7, WPd)
+        --ウェイポイントマーカー
+        if show_WPmk then
+            --ディスプレイ座標へ変換
+            x1, y1, drawable1 = Local2Display(Lx, Ly, Lz)
+            x1 = math.floor(x1)
+            y1 = math.floor(y1)
+            if drawable1 then
+                green()
+                screen.drawCircle(x1, y1, 5)
+                if show_WPmk_label then
+                    screen.drawText(x1 - 4, y1 - 11, "WP")
+                end
+                if show_WPmk_dist then
+                    screen.drawText(x1 + 1 - 2.5*#WPd, y1 + 7, WPd)
+                end
+            end
         end
 
-        x1, y1 = math.floor(w/5), math.floor(3*h/5)
-        black()
-        screen.drawRectF(x1 - 20, y1, 28, 7)
-        green()
-        screen.drawText(x1 - 19, y1 + 1, "WP")
-        screen.drawText(x1 + 8 - 5*#WPd, y1 + 1, WPd)
+        --距離描画
+        if show_WP_dist then
+            x1, y1 = math.floor(w/5), math.floor(3*h/5)
+            black()
+            screen.drawRectF(x1 - 5 - 5*dist_max_digits, y1, 13 + 5*dist_max_digits, 7)
+            green()
+            screen.drawText(x1 - 4 - 5*dist_max_digits, y1 + 1, "WP")
+            screen.drawText(x1 + 8 - 5*#WPd, y1 + 1, WPd)
+        end
 
         --到達時間
-        WP_hou = string.format("%d", math.floor(WP_time/3600))
-        WP_sec = string.format("%02.0f", math.floor(WP_time%60 + 0.5))
-        if WP_time < 3600 then
-            WP_min = string.format("%d", math.floor((WP_time/60)%60))
-            WPt = WP_min..":"..WP_sec
-        else
-            WP_min = string.format("%02.0f", math.floor((WP_time/60)%60))
-            WPt = WP_hou..":"..WP_min..":"..WP_sec
+        if show_WP_time then
+            x1, y1 = math.floor(w/5), math.floor(3*h/5)
+            WP_hou = string.format("%d", math.floor(WP_time/3600))
+            WP_sec = string.format("%02.0f", math.floor(WP_time%60 + 0.5))
+            if WP_time < 3600 then
+                WP_min = string.format("%d", math.floor((WP_time/60)%60))
+                WPt = WP_min..":"..WP_sec
+            elseif WP_time >= 36000 then
+                WPt = "-:--:--"
+            else
+                WP_min = string.format("%02.0f", math.floor((WP_time/60)%60))
+                WPt = WP_hou..":"..WP_min..":"..WP_sec
+            end
+            black()
+            screen.drawRectF(x1 + 7 - 5*#WPt, y1 + 7, 5*#WPt + 1, 7)
+            green()
+            screen.drawText(x1 + 8 - 5*#WPt, y1 + 8, WPt)
         end
+    end
+
+    --オートパイロット表示
+    if AP then
+        x1, y1 = math.floor(w/5), math.floor(3*h/5)
         black()
-        screen.drawRectF(x1 + 7 - 5*#WPt, y1 + 7, 5*#WPt + 1, 7)
+        screen.drawRectF(x1 - 5 - 5*dist_max_digits, y1 - 7, 11, 7)
         green()
-        screen.drawText(x1 + 8 - 5*#WPt, y1 + 8, WPt)
+        screen.drawText(x1 - 4 - 5*dist_max_digits, y1 - 6, "AP")
     end
 
     --速度数値
@@ -455,9 +496,9 @@ function onDraw()
         x1, y1 = math.floor(w/5), math.floor(h/3)
         spd = string.format("%d", math.floor(main_speed + 0.5))
         black()
-        screen.drawRectF(x1 - 10, y1, 20, 11)
+        screen.drawRectF(x1 + 5 - 5*spd_max_digits, y1, 5*spd_max_digits + 5, 11)
         green()
-        screen.drawRect(x1 - 9, y1 + 1, 17, 8)
+        screen.drawRect(x1 + 6 - 5*spd_max_digits, y1 + 1, 5*spd_max_digits + 2, 8)
         screen.drawText(x1 + 8 - 5*#spd, y1 + 3, spd)
     end
 
@@ -466,9 +507,9 @@ function onDraw()
         --大気速度数値
         spd = string.format("%d", math.floor(sub_speed + 0.5))
         black()
-        screen.drawRectF(x1 - 20, y1 + 10, 28, 7)
+        screen.drawRectF(x1 - 5 - 5*spd_max_digits, y1 + 10, 5*spd_max_digits + 13, 7)
         green()
-        screen.drawText(x1 - 19, y1 + 11, sub_tag)
+        screen.drawText(x1 - 4 - 5*spd_max_digits, y1 + 11, sub_tag)
         screen.drawText(x1 + 8 - 5*#spd, y1 + 11, spd)
     end
 
@@ -476,23 +517,25 @@ function onDraw()
     if show_air_alt then
         x1, y1 = math.floor(4*w/5), math.floor(h/3)
         alt = string.format("%d", math.floor(altitude + 0.5))
+        offset = 2*alt_max_digits
         black()
-        screen.drawRectF(x1 - 10, y1, 30, 11)
+        screen.drawRectF(x1 - offset, y1, 5 + 5*alt_max_digits, 11)
         green()
-        screen.drawRect(x1 - 9, y1 + 1, 27, 8)
-        screen.drawText(x1 + 18 - 5*#alt, y1 + 3, alt)
+        screen.drawRect(x1 + 1 - offset, y1 + 1, 2 + 5*alt_max_digits, 8)
+        screen.drawText(x1 + 3 + 1.5*offset - 5*#alt, y1 + 3, alt)
     end
 
     --対地高度数値
     if show_gnd_alt then
         x1, y1 = math.floor(4*w/5), math.floor(2*h/3)
         alt = string.format("%d", math.floor(gnd_alt + 0.5))
+        offset = 2*alt_max_digits
         black()
-        screen.drawRectF(x1 - 17, y1, 40, 11)
+        screen.drawRectF(x1 - 5 - offset, y1, 15 + 5*alt_max_digits, 11)
         green()
-        screen.drawText(x1 - 16, y1 + 3, "AG")
-        screen.drawRect(x1 - 6, y1 + 1, 27, 8)
-        screen.drawText(x1 + 21 - 5*#alt, y1 + 3, alt)
+        screen.drawText(x1 - 4 - offset, y1 + 3, "AG")
+        screen.drawRect(x1 + 6 - offset, y1 + 1, 2 + 5*alt_max_digits, 8)
+        screen.drawText(x1 + 8 + 1.5*offset - 5*#alt, y1 + 3, alt)
     end
 end
 
