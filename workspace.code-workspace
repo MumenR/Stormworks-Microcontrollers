@@ -53,10 +53,6 @@
 			"path": "products/Logic/Digital indicators V1"
 		},
 		{
-			"name": "electronic bulletin board",
-			"path": "products/Logic/electronic bulletin board"
-		},
-		{
 			"name": "Engine Controller V4",
 			"path": "products/Logic/Engine Controller V4"
 		},
@@ -119,6 +115,10 @@
 		{
 			"name": "Oxygen concentration meter V1",
 			"path": "products/Logic/Oxygen concentration meter V1"
+		},
+		{
+			"name": "Plane controller V2",
+			"path": "products/Logic/Plane controller V2"
 		},
 		{
 			"name": "Screw controller V1",

@@ -55,6 +55,7 @@ PRT = property.getText
 
 default_zoom = 0.5
 WP = {{0, 0}}
+WP_time = 0
 Wv_data = {}
 AP = false
 my_location_toggle = true
@@ -234,6 +235,23 @@ function align_maximum_digit_value(num)
     return num*10^i
 end
 
+--秒から時間表記へ
+function clock(x)
+    local hour, min, sec, time
+    hour = string.format("%d", math.floor(x/3600))
+    sec = string.format("%02.0f", math.floor(x%60 + 0.5))
+    if x < 3600 then
+        min = string.format("%d", math.floor((x/60)%60))
+        time = min..":"..sec
+    elseif x >= 36000 then
+        time = "-:--:--"
+    else
+        min = string.format("%02.0f", math.floor((x/60)%60))
+        time = hour..":"..min..":"..sec
+    end
+    return time
+end
+
 function onTick()
     local w, h
     w = INN(1)
@@ -384,11 +402,6 @@ function onTick()
         WP_dist = distance2(Px, Pz, WPx, WPy)
         WP_time = WP_dist/WP_speed
 
-        --デバッグ
-        OUN(30, WP_dist)
-        OUN(31, WP_speed)
-        OUN(32, WP_time)
-
         if WP_time < 0 or math.abs(WP_speed) < 0.01 then
             WP_time = 36000
         else
@@ -527,5 +540,7 @@ function onDraw()
     if AP then
         screen.setColor(0, 255, 0)
         screen.drawText(w - 11, 1, "AP")
+        WP_time_txt = clock(WP_time)
+        screen.drawText(36 - 5*#WP_time_txt, 7, WP_time_txt)
     end
 end
