@@ -147,6 +147,9 @@ function onTick()
     elP, elI, elD = PRN("elevator P"), PRN("elevator I"), PRN("elevator D")
     ruP, ruI, ruD = PRN("rudder P"), PRN("rudder I"), PRN("rudder D")
 
+    throttle_up = false
+    throttle_down = false
+
     --ティルト角度
     if pivot_up and not pivot_up_pulse then
         pivot_manual = clamp(pivot_manual - 30, 0, 90)
@@ -175,25 +178,28 @@ function onTick()
 
             --ピボット逆転
             if collective_L < 0 then
-                pivot_auto_L =pivot_auto_L
+                pivot_auto_L = -pivot_auto_L
             end
             if collective_R < 0 then
-                pivot_auto_R =pivot_auto_R
+                pivot_auto_R = -pivot_auto_R
             end
 
         --固定翼モード
         else
-            rT, pT, yT = seat_ro/8, seat_pi/8, seat_ya/8
+            rT, pT, yT = seat_ro/12, seat_pi/12, seat_ya/20
             rC, pC, yC = -Ry, Rx, Rz
             r_PID, rS, rE = PID(aiP, aiI, aiD, rT, rC, rS, rE, -1, 1)
             p_PID, pS, pE = PID(elP, elI, elD, pT, pC, pS, pE, -1, 1)
             y_PID, yS, yE = PID(ruP, ruI, ruD, yT, yC, yS, yE, -1, 1)
             cE, cS = 0, 0
 
-            roll_L, roll_R = 0, 0
+            roll_L, roll_R = y_PID, -y_PID
             pitch_L, pitch_R = p_PID, p_PID
             pivot_auto_L, pivot_auto_R = 0, 0
             collective_L, collective_R = 1, 1
+
+            throttle_up = seat_co > 0.1
+            throttle_down = seat_co < -0.1
         end
 
         aileron = r_PID
@@ -241,30 +247,24 @@ function onTick()
 
     OUN(10, collective_L)
     OUN(11, collective_R)
+
+    OUB(1, throttle_up)
+    OUB(2, throttle_down)
 end
 
 function onDraw()
     screen.setColor(255, 255, 255)
 
-    rC, pC, yC, cC = tilt_x, tilt_y, Rz, Vz
-    rC = string.format("%.03f", rC)
-    pC = string.format("%.03f", pC)
-    yC = string.format("%.03f", yC)
-    cC = string.format("%.03f", cC)
-    screen.drawText(1, 1, "cur roll:"..rC)
-    screen.drawText(1, 7, "cur pitc:"..pC)
-    screen.drawText(1, 13, "cur yaw :"..yC)
-    screen.drawText(1, 19, "cur coll:"..cC)
-
-    roll_L = string.format("%.03f", roll_L)
-    pitch_L = string.format("%.03f", pitch_L)
-    pivot_auto_L = string.format("%.03f", pivot_auto_L)
-    collective_L = string.format("%.03f", collective_L)
-
-    screen.drawText(1, 31, "pid roll:"..roll_L)
-    screen.drawText(1, 37, "pid pitc:"..pitch_L)
-    screen.drawText(1, 43, "pid yaw :"..pivot_auto_L)
-    screen.drawText(1, 49, "pid coll:"..collective_L)
+    x = string.format("%.03f", tilt_x)
+    y = string.format("%.03f", tilt_y)
+    rx = string.format("%.03f", Rx)
+    ry = string.format("%.03f", Ry)
+    rz = string.format("%.03f", Rz)
+    screen.drawText(1, 1, "tilt_x:"..x)
+    screen.drawText(1, 7, "tilt_y:"..y)
+    screen.drawText(1, 13, "Rx:"..rx)
+    screen.drawText(1, 19, "Ry:"..ry)
+    screen.drawText(1, 25, "Rz:"..rz)
 end
 
 
