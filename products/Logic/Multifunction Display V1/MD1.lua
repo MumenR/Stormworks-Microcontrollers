@@ -67,6 +67,8 @@ PRN = property.getNumber
 PRB = property.getBool
 PRT = property.getText
 
+t = 0
+
 function clamp(x, min, max)
     if x >= max then
         return max

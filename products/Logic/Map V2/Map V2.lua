@@ -60,6 +60,8 @@ Wv_data = {}
 AP = false
 my_location_toggle = true
 zoom_out_toggle = false
+touch_t1 = 0
+touch_t2 = 0
 
 --x = 0 ~ 1
 --min = 最小ズームの時のマップのズーム値
