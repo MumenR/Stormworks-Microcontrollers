@@ -1,73 +1,21 @@
--- Author: MumenR
--- GitHub: https://github.com/MumenR/Stormworks-Microcontrollers
--- Workshop: https://steamcommunity.com/profiles/76561199060549727/myworkshopfiles/
---
---- Developed using LifeBoatAPI - Stormworks Lua plugin for VSCode - https://code.visualstudio.com/download (search "Stormworks Lua with LifeboatAPI" extension)
---- If you have any issues, please report them here: https://github.com/nameouschangey/STORMWORKS_VSCodeExtension/issues - by Nameous Changey
+data_new = {
+    {x = 100, y = 100, z = 100, d = 1000, id = 1},
+    {x = 230, y = 100, z = 100, d = 1000, id = 2},
+    {x = 90, y = 100, z = 100, d = 1000, id = 3},
+    {x = 230, y = 100, z = 100, d = 1000, id = 4},
+    {x = 210, y = 100, z = 100, d = 1000, id = 5},
+    {x = 120, y = 100, z = 100, d = 1000, id = 6},
+    {x = 200, y = 100, z = 100, d = 1000, id = 7},
+    {x = 110, y = 100, z = 100, d = 1000, id = 8},
+}
 
-
---[====[ HOTKEYS ]====]
--- Press F6 to simulate this file
--- Press F7 to build the project, copy the output from /_build/out/ into the game to use
--- Remember to set your Author name etc. in the settings: CTRL+COMMA
-
-
---[====[ EDITABLE SIMULATOR CONFIG - *automatically removed from the F7 build output ]====]
----@section __LB_SIMULATOR_ONLY__
-do
-    ---@type Simulator -- Set properties and screen sizes here - will run once when the script is loaded
-    simulator = simulator
-    simulator:setScreen(1, "3x3")
-    simulator:setProperty("ExampleNumberProperty", 123)
-
-    -- Runs every tick just before onTick; allows you to simulate the inputs changing
-    ---@param simulator Simulator Use simulator:<function>() to set inputs etc.
-    ---@param ticks     number Number of ticks since simulator started
-    function onLBSimulatorTick(simulator, ticks)
-
-        -- touchscreen defaults
-        local screenConnection = simulator:getTouchScreen(1)
-        simulator:setInputBool(1, screenConnection.isTouched)
-        simulator:setInputNumber(1, screenConnection.width)
-        simulator:setInputNumber(2, screenConnection.height)
-        simulator:setInputNumber(3, screenConnection.touchX)
-        simulator:setInputNumber(4, screenConnection.touchY)
-
-        -- NEW! button/slider options from the UI
-        simulator:setInputBool(31, simulator:getIsClicked(1))       -- if button 1 is clicked, provide an ON pulse for input.getBool(31)
-        simulator:setInputNumber(31, simulator:getSlider(1))        -- set input 31 to the value of slider 1
-
-        simulator:setInputBool(32, simulator:getIsToggled(2))       -- make button 2 a toggle, for input.getBool(32)
-        simulator:setInputNumber(32, simulator:getSlider(2) * 50)   -- set input 32 to the value from slider 2 * 50
-    end;
+for _, value in pairs(data_new) do
+    print(value.x, value.y, value.z, value.d, value.id)
 end
----@endsection
 
+print()
 
---[====[ IN-GAME CODE ]====]
-
--- try require("Folder.Filename") to include code from another file in this, so you can store code in libraries
--- the "LifeBoatAPI" is included by default in /_build/libs/ - you can use require("LifeBoatAPI") to get this, and use all the LifeBoatAPI.<functions>!
-
-function onDraw()
-    w = screen.getWidth()
-    h = screen.getHeight()
-        --マップ描画
-        if true then
-            screen.setMapColorOcean(0,5,20,255)
-            screen.setMapColorShallows(0,7,30,255)
-            screen.setMapColorLand(5,5,10,255)
-            screen.setMapColorGrass(10,10,20,255)
-            screen.setMapColorSand(2,2,5,255)
-            screen.setMapColorSnow(20,20,40,255)
-            screen.setMapColorRock(3,3,6,255)
-            screen.setMapColorGravel(3,3,3,255)
-        end
-        screen.drawMap(0, 0, 10)
-
-        screen.setColor(255, 255, 255, 64)
-        screen.drawLine(0, h/2, w/2 - 5, h/2)
-        screen.drawLine(w, h/2, w/2 + 5, h/2)
-        screen.drawLine(w/2, 0, w/2, h/2 - 5)
-        screen.drawLine(w/2, h, w/2, h/2 + 5)
+for _, value in pairs(data_new) do
+    data_new[_].x = nil
+    print(value.x, value.y, value.z, value.d, value.id)
 end

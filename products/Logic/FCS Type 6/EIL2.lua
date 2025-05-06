@@ -1,3 +1,7 @@
+-- Author: MumenR
+-- GitHub: https://github.com/MumenR/Stormworks-Microcontrollers
+-- Workshop: https://steamcommunity.com/profiles/76561199060549727/myworkshopfiles/
+--
 --- Developed using LifeBoatAPI - Stormworks Lua plugin for VSCode - https://code.visualstudio.com/download (search "Stormworks Lua with LifeboatAPI" extension)
 --- If you have any issues, please report them here: https://github.com/nameouschangey/STORMWORKS_VSCodeExtension/issues - by Nameous Changey
 
@@ -53,6 +57,3 @@ end
 function onDraw()
     screen.drawCircle(16,16,5)
 end
-
-
-

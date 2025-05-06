@@ -55,6 +55,7 @@ PRT = property.getText
 
 PH_pulse = false
 RH_pulse = false
+PH = false
 
 function clamp(x, min, max)
     if x >= max then
@@ -179,14 +180,13 @@ function onTick()
     prop_RPS_L = INN(28)
     prop_RPS_R = INN(29)
 
-    tilt_L = INN(30)
-    tilt_R = INN(31)
+    gnd_alt = INN(30)
 
     pivot_down = INB(1)
     pivot_up = INB(2)
     AH = INB(3)
     RH = INB(4)
-    PH = INB(5)
+    PH_seat = INB(5)
     AP = INB(6)
     taxing = INB(7)
     power = INB(8)
@@ -218,6 +218,12 @@ function onTick()
     end
     pivot_up_pulse = pivot_up
     pivot_down_pulse = pivot_down
+
+    if (PH_seat and PH) or gnd_alt < 1 then
+        PH = false
+    elseif PH_seat and not PH and gnd_alt >= 1 then
+        PH = true
+    end
 
     if PH then
         pivot_manual = 0
@@ -418,6 +424,7 @@ function onTick()
 
     OUB(1, throttle_up)
     OUB(2, throttle_down)
+    OUB(3, PH)
 end
 
 function onDraw()
