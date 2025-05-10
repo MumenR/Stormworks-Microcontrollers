@@ -49,11 +49,26 @@ end
 -- try require("Folder.Filename") to include code from another file in this, so you can store code in libraries
 -- the "LifeBoatAPI" is included by default in /_build/libs/ - you can use require("LifeBoatAPI") to get this, and use all the LifeBoatAPI.<functions>!
 
-ticks = 0
-function onTick()
-    ticks = ticks + 1
-end
+INN = input.getNumber
+INB = input.getBool
+OUN = output.setNumber
+OUB = output.setBool
+PRN = property.getNumber
 
-function onDraw()
-    screen.drawCircle(16,16,5)
+function onTick()
+    x = INN(25)
+    y = INN(26)
+    z = INN(27)
+    vx = INN(28)
+    vy = INN(29)
+    vz = INN(30)
+    detected = INN(31) == 1
+
+    OUN(1, x)
+    OUN(2, y)
+    OUN(3, z)
+    OUN(4, vx)
+    OUN(5, vy)
+    OUN(6, vz)
+    OUB(1, detected)
 end
