@@ -55,13 +55,18 @@ OUN = output.setNumber
 OUB = output.setBool
 PRN = property.getNumber
 
-data_pos = {}
-data = {}
-max_velocity = 300 --m/s
-max_accel = 300 --m/s*s
+position_delay_buffer = {}
+target_data = {}
+lock_on_list = {}
+is_locked_on = false
+press_tick = 0
+lock_on_ID = 0
+next_MTX_ID = 0
 
-max_velocity = max_velocity/60
-max_accel = max_accel/3600
+SHORT_PRESS_MAX_TICKS = 15
+
+MAX_TARGET_SPEED = 300/60
+MAX_TARGET_ACCEL = 300/(60*60)
 
 function clamp(x, min, max)
     if x >= max then
@@ -124,8 +129,8 @@ function nextID()
     local ID, same = 1, true
     while same do
         same = false
-        for _, DATA in pairs(data) do
-            same = DATA.id == ID
+        for _, DATA in pairs(target_data) do
+            same = DATA.ID == ID
             if same then
                 ID = ID + 1
                 break
@@ -135,28 +140,42 @@ function nextID()
     return ID
 end
 
-function onTick()
-    min_dist = PRN("Vehicle radius [m]")
-    delay = PRN("delay [tick]")
+--MXT出力中か判定
+function is_MXT_out(ID)
+    local is_MXT_out = false
+    for _, LOCK_ON in pairs(lock_on_list) do
+        if LOCK_ON.ID == ID then
+            is_MXT_out = true
+            break
+        end
+    end
+    return is_MXT_out
+end
 
-    lock_on_ID = INN(31)
-    select_ID = INN(32)
+function onTick()
+    VEHICLE_RADIUS = PRN("Vehicle radius [m]")
+    TARGET_DELAY = PRN("Delay [tick]")
+    MAX_TARGET_OUTPUT_TICK = PRN("Max target output time [sec]")*60
+
+    select_ID = INN(31)
+
+    is_press = INN(32) == 1
 
     --フィジックス情報取り込み
     --遅延生成
-    table.insert(data_pos, {INN(25), INN(26), INN(27), INN(28), INN(29), INN(30)})
-    while #data_pos > 6  do
-        table.remove(data_pos, 1)
+    table.insert(position_delay_buffer, {INN(25), INN(26), INN(27), INN(28), INN(29), INN(30)})
+    while #position_delay_buffer > 6  do
+        table.remove(position_delay_buffer, 1)
     end
-    Px = data_pos[1][1]
-    Py = data_pos[1][2]
-    Pz = data_pos[1][3]
-    Ex = data_pos[1][4]
-    Ey = data_pos[1][5]
-    Ez = data_pos[1][6]
+    Px = position_delay_buffer[1][1]
+    Py = position_delay_buffer[1][2]
+    Pz = position_delay_buffer[1][3]
+    Ex = position_delay_buffer[1][4]
+    Ey = position_delay_buffer[1][5]
+    Ez = position_delay_buffer[1][6]
 
     --[[
-        data = {
+        target_data = {
             [ID] = {
                 position = {
                     {x = world X, y = world Y, z = world Z, t = tick},
@@ -167,15 +186,15 @@ function onTick()
                     y = {a = least ax, b = least bx, est = estimation},
                     z = {a = least ax, b = least bx, est = estimation},
                 },
-                id = data ID,
+                ID = target ID,
                 t_last = -last tick
                 t_out = output tick
             },
             ...
         }
     ]]
-    --時間経過とデータ削除
-    for ID, DATA in pairs(data) do
+    --データベースの時間経過とデータ削除
+    for ID, DATA in pairs(target_data) do
         --時間経過
         for _, POS in pairs(DATA.position) do
             POS.t = POS.t - 1
@@ -189,7 +208,7 @@ function onTick()
     
         --データ削除
         if DATA.t_last > t_max then
-            data[ID] = nil
+            target_data[ID] = nil
         else
             local i = 1
             while i <= #DATA.position do
@@ -201,9 +220,16 @@ function onTick()
             end
         end
     end
+    --MXT出力について時間経過と削除
+    for index, TGT in pairs(lock_on_list) do
+        TGT.t = TGT.t + 1
+        if TGT.t > MAX_TARGET_OUTPUT_TICK or target_data[TGT.ID] == nil then
+            lock_on_list[index] = nil
+        end
+    end
 
     --[[
-        data_new = {
+        new_target = {
             [i] = {
                 x = World X
                 y = World Y
@@ -214,40 +240,40 @@ function onTick()
         }
     ]]
     --データ取り込み
-    data_new = {}
+    new_target = {}
     for i = 1, 8 do
         local yaw, pitch, dist, Lx, Ly, Lz, Wx, Wy, Wz
         dist = INN(i*3 - 2)
         yaw = INN(i*3 - 1)
         pitch = INN(i*3 - 0)
         
-        if INB(i) and dist >= min_dist then
+        if INB(i) and dist >= VEHICLE_RADIUS then
             --座標変換
             Lx, Ly, Lz = Polar2Rect(pitch, yaw, dist, false)
             Wx, Wy, Wz = Local2World(Lx, Ly, Lz, Px, Py, Pz, Ex, Ey, Ez)
 
             --追加
-            table.insert(data_new, {x = Wx, y = Wy, z = Wz, d = dist, t = 0})
+            table.insert(new_target, {x = Wx, y = Wy, z = Wz, d = dist, t = 0})
         end
     end
 
     --同時検出時にデータ統合
-    for i = 1, #data_new do
+    for i = 1, #new_target do
         local A, B, same_data, error_range, sum_x, sum_y, sum_z, j
-        A = data_new[i]
+        A = new_target[i]
         if A == nil then
             break
         end
-        error_range = 0.05*A.d + min_dist
+        error_range = 0.02*A.d + VEHICLE_RADIUS
         same_data = {A}
         --距離を判定される側の探索
         j = i + 1
-        while j <= #data_new do
-            B = data_new[j]
+        while j <= #new_target do
+            B = new_target[j]
             --規定値以下なら仮テーブルに追加し、元テーブルから削除
             if distance3(A.x, A.y, A.z, B.x, B.y, B.z) < error_range then
                 table.insert(same_data, B)
-                table.remove(data_new, j)
+                table.remove(new_target, j)
             else
                 j = j + 1
             end
@@ -259,7 +285,7 @@ function onTick()
             sum_y = sum_y + C.y
             sum_z = sum_z + C.z
         end
-        data_new[i] = {
+        new_target[i] = {
             x = sum_x/#same_data,
             y = sum_y/#same_data,
             z = sum_z/#same_data,
@@ -269,9 +295,9 @@ function onTick()
     end
 
     --目標同定
-    for _, DATA in pairs(data) do
+    for _, DATA in pairs(target_data) do
         local error, min_dist, min_i, x1, y1, z1, distance
-        if #data_new == 0 then
+        if #new_target == 0 then
             break
         end
         --最小距離データを探索
@@ -280,7 +306,7 @@ function onTick()
         x1 = DATA.predict.x.a + DATA.predict.x.b
         y1 = DATA.predict.y.a + DATA.predict.y.b
         z1 = DATA.predict.z.a + DATA.predict.z.b
-        for i, NEW in pairs(data_new) do
+        for i, NEW in pairs(new_target) do
             distance = distance3(x1, y1, z1, NEW.x, NEW.y, NEW.z)
             if distance < min_dist then
                 min_dist = distance
@@ -290,35 +316,35 @@ function onTick()
 
         --許容誤差として最大移動ユークリッド距離を設定
         if #DATA.position <= 1 then
-            error = max_velocity*DATA.t_last
+            error = MAX_TARGET_SPEED*DATA.t_last
         else
-            error = max_accel*(DATA.t_last^2)/2
+            error = MAX_TARGET_ACCEL*(DATA.t_last^2)/2
         end
-        error = error + 0.01*data_new[min_i].d
+        error = error + 0.02*new_target[min_i].d
         --データ追加
         if min_dist < error then
-            data_new[min_i].d = nil
+            new_target[min_i].d = nil
             DATA.t_out = math.huge
-            table.insert(DATA.position, data_new[min_i])
-            table.remove(data_new, min_i)
+            table.insert(DATA.position, new_target[min_i])
+            table.remove(new_target, min_i)
         end
     end
 
     --新規目標登録
-    for _, NEW in pairs(data_new) do
+    for _, NEW in pairs(new_target) do
         local ID = nextID()
         NEW.d = nil
-        data[ID] = {
+        target_data[ID] = {
             position = {NEW},
             predict = {x = {}, y = {}, z = {}},
-            id = ID,
+            ID = ID,
             t_last = 0,
             t_out = math.huge
         }
     end
 
     --位置推定
-    for _, DATA in pairs(data) do
+    for _, DATA in pairs(target_data) do
         local table_x, table_y, table_z, ax, bx, ay, by, az, bz
         --テーブル作成
         table_x, table_y, table_z = {}, {}, {}
@@ -332,44 +358,102 @@ function onTick()
         ay, by = least_squares_method(table_y)
         az, bz = least_squares_method(table_z)
         DATA.predict = {
-            x = {a = ax, b = bx, est = ax*delay + bx},
-            y = {a = ay, b = by, est = ay*delay + by},
-            z = {a = az, b = bz, est = az*delay + bz}
+            x = {a = ax, b = bx, est = ax*TARGET_DELAY + bx},
+            y = {a = ay, b = by, est = ay*TARGET_DELAY + by},
+            z = {a = az, b = bz, est = az*TARGET_DELAY + bz}
         }
     end
 
+    --短押し/長押し判定
+    if is_press then
+        press_tick = press_tick + 1
+    end
+    is_short_press = press_tick < SHORT_PRESS_MAX_TICKS and press_tick > 0 and not is_press
+    is_long_press = press_tick >= SHORT_PRESS_MAX_TICKS and press_tick > 0 and not is_press
+    if not is_press then
+        press_tick = 0
+    end
+
+    --ロックオン切り替え
+    if is_short_press and #target_data ~= 0 then
+        is_locked_on = lock_on_ID ~= select_ID
+    elseif #target_data == 0 or (target_data[lock_on_ID] == nil and lock_on_ID ~= 0) then
+        is_locked_on = false
+    end
+
+    --ロックオンID更新
+    if select_ID ~= 0 and is_locked_on and is_short_press then
+        lock_on_ID = select_ID
+    elseif not is_locked_on then
+        lock_on_ID = 0
+    end
+
+    --継続出力リストに追加
+    --[[
+        lock_on_list = {
+            [index] = {
+                ID = target data ID,
+                MTX_ID = MTX ID,
+                t = tick
+                t_out = output tick
+            }
+        }
+    ]]
+    if is_long_press and is_locked_on then
+        local temp_lock_on_ID = {
+            ID = lock_on_ID,
+            MTX_ID = next_MTX_ID,
+            t = 0,
+            t_out = math.huge
+        }
+        table.insert(lock_on_list, temp_lock_on_ID)
+        next_MTX_ID = next_MTX_ID + 1
+    end
+
     --初期出力
-    for i = 1, 31 do
+    for i = 1, 32 do
         OUN(i, 0)
     end
 
     i = 1
     --出力(ロックオン)
-    if lock_on_ID ~= 0 and data[lock_on_ID] ~= nil then
-        OUN(i*4 - 3, data[lock_on_ID].predict.x.est)
-        OUN(i*4 - 2, data[lock_on_ID].predict.y.est)
-        OUN(i*4 - 1, data[lock_on_ID].predict.z.est)
-        OUN(i*4 - 0, data[lock_on_ID].id + 100000)
+    if lock_on_ID ~= 0 and target_data[lock_on_ID] ~= nil then
+        OUN(i*4 - 3, target_data[lock_on_ID].predict.x.est)
+        OUN(i*4 - 2, target_data[lock_on_ID].predict.y.est)
+        OUN(i*4 - 1, target_data[lock_on_ID].predict.z.est)
+
+        local offset_ID = 10^5
+        if select_ID == lock_on_ID then
+            offset_ID = offset_ID + 10^4
+        end
+        if is_MXT_out(lock_on_ID) then
+            offset_ID = offset_ID + 10^6
+        end
+        OUN(i*4 - 0, target_data[lock_on_ID].ID + offset_ID)
         
-        OUN(25, data[lock_on_ID].predict.x.est)
-        OUN(26, data[lock_on_ID].predict.y.est)
-        OUN(27, data[lock_on_ID].predict.z.est)
-        OUN(28, data[lock_on_ID].predict.x.a)
-        OUN(29, data[lock_on_ID].predict.y.a)
-        OUN(30, data[lock_on_ID].predict.z.a)
+        OUN(25, target_data[lock_on_ID].predict.x.est)
+        OUN(26, target_data[lock_on_ID].predict.y.est)
+        OUN(27, target_data[lock_on_ID].predict.z.est)
+        OUN(28, target_data[lock_on_ID].predict.x.a)
+        OUN(29, target_data[lock_on_ID].predict.y.a)
+        OUN(30, target_data[lock_on_ID].predict.z.a)
         OUN(31, 1)
 
-        data[lock_on_ID].t_out = 0
+        target_data[lock_on_ID].t_out = 0
         i = i + 1
     end
 
     --出力(選択)
-    if select_ID ~= 0 and lock_on_ID ~= select_ID and data[select_ID] ~= nil then
-        OUN(i*4 - 3, data[select_ID].predict.x.est)
-        OUN(i*4 - 2, data[select_ID].predict.y.est)
-        OUN(i*4 - 1, data[select_ID].predict.z.est)
-        OUN(i*4 - 0, data[select_ID].id + 10000)
-        data[select_ID].t_out = 0
+    if select_ID ~= 0 and lock_on_ID ~= select_ID and target_data[select_ID] ~= nil then
+        OUN(i*4 - 3, target_data[select_ID].predict.x.est)
+        OUN(i*4 - 2, target_data[select_ID].predict.y.est)
+        OUN(i*4 - 1, target_data[select_ID].predict.z.est)
+        if is_MXT_out(select_ID) then
+            OUN(i*4 - 0, target_data[select_ID].ID + 10^4 + 10^6)
+        else
+            OUN(i*4 - 0, target_data[select_ID].ID + 10^4)
+        end
+        target_data[select_ID].t_out = 0
         i = i + 1
     end
 
@@ -377,7 +461,7 @@ function onTick()
     for j = i, 6 do
         --t_out 最大値探索
         local max_t, max_ID = 0, 0
-        for ID, DATA in pairs(data) do
+        for ID, DATA in pairs(target_data) do
             if (DATA.t_out > max_t) and (ID ~= lock_on_ID) and (ID ~= lock_on_ID) then
                 max_t = DATA.t_out
                 max_ID = ID
@@ -385,14 +469,19 @@ function onTick()
         end
         --出力
         if max_ID ~= 0 then
-            OUN(j*4 - 3, data[max_ID].predict.x.est)
-            OUN(j*4 - 2, data[max_ID].predict.y.est)
-            OUN(j*4 - 1, data[max_ID].predict.z.est)
-            OUN(j*4 - 0, data[max_ID].id)
-            data[max_ID].t_out = 0
+            OUN(j*4 - 3, target_data[max_ID].predict.x.est)
+            OUN(j*4 - 2, target_data[max_ID].predict.y.est)
+            OUN(j*4 - 1, target_data[max_ID].predict.z.est)
+
+            if is_MXT_out(target_data[max_ID].ID) then
+                OUN(j*4 - 0, target_data[max_ID].ID + 10^6)
+            else
+                OUN(j*4 - 0, target_data[max_ID].ID)
+            end
+            target_data[max_ID].t_out = 0
         end
     end
 
     --デバッグ
-    OUN(32, #data)
+    OUN(32, #target_data)
 end

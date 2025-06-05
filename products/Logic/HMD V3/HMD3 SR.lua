@@ -139,15 +139,17 @@ function onTick()
     --データ取り込み
     --data[ID]{x, y, z, t, select, lock}
     for i = 0, 5 do
-        ID = INN(i*4 + 4)%10000
+        local raw_ID = INN(i*4 + 4)
+        ID = raw_ID%10000
         if ID ~= 0 then
             data[ID] = {
                 x = INN(i*4 + 1),
                 y = INN(i*4 + 2),
                 z = INN(i*4 + 3),
                 t = 0,
-                select = INN(i*4 + 4) > 10000 and INN(i*4 + 4) < 100000,
-                lock = INN(i*4 + 4) > 100000
+                select = raw_ID%(10^5) > 10^4,
+                lock = raw_ID%(10^6) > 10^5,
+                MXT_out = raw_ID > 10^6
             }
         end
     end
@@ -174,15 +176,31 @@ function onDraw()
         x1 = math.floor(x1)
         y1 = math.floor(y1)
         if drawable1 then
-            screen.drawRect(x1 - 4, y1 - 4, 8, 8)
 
-            if tgt.lock then
+            --四角
+            if tgt.lock or not tgt.MXT_out then
+                screen.drawRect(x1 - 4, y1 - 4, 8, 8)
+            end
+
+            --菱形
+            if tgt.lock or tgt.MXT_out then
                 screen.drawLine(x1 - 4, y1, x1, y1 + 4)
                 screen.drawLine(x1, y1 + 4, x1 + 4, y1)
                 screen.drawLine(x1 + 4, y1, x1, y1 - 4)
                 screen.drawLine(x1, y1 - 4, x1 - 4, y1)
-            elseif tgt.select then
+            end
+
+            --小四角
+            if not tgt.MXT_out and not tgt.lock and tgt.select then
                 screen.drawRect(x1 - 3, y1 - 3, 6, 6)
+            end
+
+            --小菱形
+            if (tgt.MXT_out or tgt.lock) and tgt.select then
+                screen.drawLine(x1 - 3, y1, x1, y1 + 3)
+                screen.drawLine(x1, y1 + 3, x1 + 3, y1)
+                screen.drawLine(x1 + 3, y1, x1, y1 - 3)
+                screen.drawLine(x1, y1 - 3, x1 - 3, y1)
             end
 
             --ID

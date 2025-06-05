@@ -145,6 +145,10 @@
 			"path": "products/Logic/SM Type 2"
 		},
 		{
+			"name": "SM Type 3",
+			"path": "products/Logic/SM Type 3"
+		},
+		{
 			"name": "Sonar Azimuth",
 			"path": "products/Logic/Sonar Azimuth"
 		},
@@ -191,6 +195,10 @@
 		{
 			"name": "TP Type 1",
 			"path": "products/Logic/TP Type 1"
+		},
+		{
+			"name": "VLS Mk.10",
+			"path": "products/Logic/VLS Mk.10"
 		},
 		{
 			"name": "libs",

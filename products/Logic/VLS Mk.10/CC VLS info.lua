@@ -54,119 +54,48 @@ INB = input.getBool
 OUN = output.setNumber
 OUB = output.setBool
 PRN = property.getNumber
-PRB = property.getBool
 
-data = {}
-select_ID = 0
+time_out_tick = 100
+weapon_data = {}
 
-delete_tick = 30
-
-function atan2(x, y)
-    if x >= 0 then
-        ans = math.atan(y/x)
-    elseif y >= 0 then
-        ans = math.atan(y/x) + math.pi
-    else
-        ans = math.atan(y/x) - math.pi
-    end
-    return ans
-end
-
---ワールド座標からローカル座標へ(physics sensor使用)
-function World2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
-    local a, b, c, d, e, f, g, h, i, j, k, l, x, z, y, Lower
-	Wx = Wx - Px
-	Wy = Wy - Pz
-	Wz = Wz - Py
-	a = math.cos(Ez)*math.cos(Ey)
-	b = math.cos(Ez)*math.sin(Ey)*math.sin(Ex) - math.sin(Ez)*math.cos(Ex)
-	c = math.cos(Ez)*math.sin(Ey)*math.cos(Ex) + math.sin(Ez)*math.sin(Ex)
-	d = Wx
-	e = math.sin(Ez)*math.cos(Ey)
-	f = math.sin(Ez)*math.sin(Ey)*math.sin(Ex) + math.cos(Ez)*math.cos(Ex)
-	g = math.sin(Ez)*math.sin(Ey)*math.cos(Ex) - math.cos(Ez)*math.sin(Ex)
-	h = Wz
-	i = -math.sin(Ey)
-	j = math.cos(Ey)*math.sin(Ex)
-	k = math.cos(Ey)*math.cos(Ex)
-	l = Wy
-	Lower = ((a*f-b*e)*k + (c*e - a*g)*j + (b*g - c*f)*i)
-	x = 0
-	y = 0
-	z = 0
-	if Lower ~= 0 then
-		x = ((b*g - c*f)*l + (d*f - b*h)*k + (c*h - d*g)*j)/Lower
-		y = -((a*g - c*e)*l + (d*e - a*h)*k + (c*h - d*g)*i)/Lower
-		z = ((a*f - b*e)*l + (d*e - a*h)*j + (b*h - d*f)*i)/Lower
-	end
-	return x, z, y
-end
-
---直交座標から極座標へ変換
-function Rect2Polar(x, y, z, radian_bool)
-    local pitch, yaw
-    pitch = atan2(math.sqrt(x^2 + y^2), z)
-    yaw = atan2(y, x)
-    distance = math.sqrt(x^2 + y^2 + z^2)
-    if radian_bool then
-        return pitch, yaw, distance
-    else
-        return pitch/(math.pi*2), yaw/(math.pi*2), distance
-    end
-end
-
---目標を選択
 function onTick()
-    Px = INN(25)
-    Py = INN(26)
-    Pz = INN(27)
-    Ex = INN(28)
-    Ey = INN(29)
-    Ez = INN(30)
-    seat_x = INN(31)
-    seat_y = INN(32)
+    last_vls_info = INN(32)
 
-    --時間経過
-    for ID, tgt in pairs(data) do
-        tgt.t = tgt.t + 1
+    --時間経過処理とタイムアウト削除
+    for NO, MODEL in pairs(weapon_data) do
+        MODEL.t = MODEL.t + 1
+        if MODEL.t > time_out_tick then
+            weapon_data[NO] = nil
+        end
     end
 
-    --データ取り込み
-    --data[ID]{x, y, z, t}
-    for i = 0, 5 do
-        ID = INN(i*4 + 4)%10000
-        if ID ~= 0 then
-            data[ID] = {
-                x = INN(i*4 + 1),
-                y = INN(i*4 + 2),
-                z = INN(i*4 + 3),
+    --取り込んだ情報を登録
+    --[[
+        weapon_data = {
+            [model No.] = {
+                no = weapon model No.,
+                count = weapon count,
+                t = last output tick
+            }
+        }
+    ]]
+    if last_vls_info ~= 0 then
+        last_wpn_no = math.floor(last_vls_info/1000)
+        last_wpn_count = last_vls_info%1000
+        if weapon_data[last_wpn_no] == nil then
+            weapon_data[last_wpn_no] = {
+                no = last_wpn_no,
+                count = last_wpn_count,
                 t = 0
             }
+        else
+            weapon_data[last_wpn_no].no = last_wpn_no
+            weapon_data[last_wpn_no].count = last_wpn_count
         end
     end
 
-    --一定時間以上で削除
-    for ID, tgt in pairs(data) do
-        if tgt.t > delete_tick then
-            data[ID] = nil
-        end
+    --出力リセット
+    for i = 1, 32 do
+        OUN(i, 0)
     end
-
-    --視点方向との差が最小のIDを探す
-    error_min = (30/360)^2
-    select_ID = 0
-    for ID, tgt in pairs(data) do
-        local Lx, Ly, Lz, Lpi, Lya, Ldi, error
-        Lx, Ly, Lz = World2Local(tgt.x, tgt.y, tgt.z, Px, Py, Pz, Ex, Ey, Ez)
-        Lpi, Lya, Ldi = Rect2Polar(Lx, Ly, Lz, false)
-
-        error = (Lpi - seat_y)^2 + (Lya - seat_x)^2
-
-        if error < error_min then
-            error_min = error
-            select_ID = ID
-        end
-    end
-
-    OUN(1, select_ID)
 end
