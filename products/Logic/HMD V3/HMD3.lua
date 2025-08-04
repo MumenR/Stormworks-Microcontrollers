@@ -327,7 +327,12 @@ function onDraw()
 
     --水平線
     if show_horizon then
-        for i = 5, 180, 45 do
+        local start_deg = 5
+        if not show_center then
+            start_deg = 0
+        end
+        
+        for i = start_deg, 180, 45 do
             --左右
             for j = -1, 1, 2 do
                 x1, y1, drawable1 = Polar2Display(0, j*i/360, 0, compass, 0)

@@ -17,7 +17,7 @@
 do
     ---@type Simulator -- Set properties and screen sizes here - will run once when the script is loaded
     simulator = simulator
-    simulator:setScreen(1, "3x3")
+    simulator:setScreen(1, "2x2")
     simulator:setProperty("ExampleNumberProperty", 123)
 
     -- Runs every tick just before onTick; allows you to simulate the inputs changing
@@ -49,11 +49,34 @@ end
 -- try require("Folder.Filename") to include code from another file in this, so you can store code in libraries
 -- the "LifeBoatAPI" is included by default in /_build/libs/ - you can use require("LifeBoatAPI") to get this, and use all the LifeBoatAPI.<functions>!
 
+
+--[[
+    Array for converting Weapon model No. to weapon name
+    weapon_no_to_name[No.] = "weapon name"
+
+    example:
+    weapon_no_to_name = {
+        [1001] = "SM 1",
+        [1002] = "SM 2",
+        [1003] = "SM 3"
+    }
+]]
+
+weapon_no_to_name = {
+    [1003] = "SM 3"
+}
+
+
+
+
+
 INN = input.getNumber
 INB = input.getBool
 OUN = output.setNumber
 OUB = output.setBool
 PRN = property.getNumber
+PRB = property.getBool
+PRT = property.getText
 
 time_out_tick = 100
 weapon_data = {}
@@ -74,28 +97,88 @@ function onTick()
         weapon_data = {
             [model No.] = {
                 no = weapon model No.,
-                count = weapon count,
-                t = last output tick
+                qty = weapon qty,
+                t = last output tick,
+                name = weapon name
             }
         }
     ]]
     if last_vls_info ~= 0 then
+        local last_wpn_no, last_wpn_qty, last_wpn_name
         last_wpn_no = math.floor(last_vls_info/1000)
-        last_wpn_count = last_vls_info%1000
+        last_wpn_qty = last_vls_info%1000
         if weapon_data[last_wpn_no] == nil then
+            if PRT(tostring(last_wpn_no)) ~= "" then
+                last_wpn_name = PRT(tostring(last_wpn_no))
+            else
+                last_wpn_name = tostring(last_wpn_no)
+            end
             weapon_data[last_wpn_no] = {
                 no = last_wpn_no,
-                count = last_wpn_count,
-                t = 0
+                qty = last_wpn_qty,
+                t = 0,
+                name = last_wpn_name
             }
         else
             weapon_data[last_wpn_no].no = last_wpn_no
-            weapon_data[last_wpn_no].count = last_wpn_count
+            weapon_data[last_wpn_no].qty = last_wpn_qty
+            weapon_data[last_wpn_no].t = 0
         end
     end
+
+    --No.が小さい順に
+    --[[
+        weapon_data_sort = {
+            [index] = {
+                no = model No.,
+                qty = weapon_data
+            }
+        }
+    ]]
+    
+    -- 一時的に weapon_data の値を配列として集める
+    weapon_data_sort = {}
+    for _, data in pairs(weapon_data) do
+        table.insert(weapon_data_sort, data)
+    end
+
+    -- no の昇順でソート
+    table.sort(weapon_data_sort, function(a, b) return a.no < b.no end)
 
     --出力リセット
     for i = 1, 32 do
         OUN(i, 0)
+    end
+
+    for i = 1, #weapon_data_sort do
+        OUN(i*2 - 1, weapon_data_sort[i].no)
+        OUN(i*2 - 0, weapon_data_sort[i].qty)
+    end
+end
+
+function onDraw()
+    w, h = screen.getWidth(), screen.getHeight()
+
+    --ライン
+    screen.setColor(0, 0, 64)
+    for i = 7, h, 8 do
+        screen.drawLine(0, i, w, i)
+    end
+    screen.drawLine(3*w/5, 0, 3*w/5, h)
+
+    --ラベル
+    screen.setColor(255, 255, 255)
+    screen.drawText(3*w/10 - 8, 1, "MSL")
+    screen.drawText(4*w/5 - 5, 1, "QTY")
+
+    --名前と数量
+    for i = 1, #weapon_data_sort do
+        local index, name, qty
+        index = weapon_data_sort[i].no
+        name = weapon_data_sort[i].name
+        qty = tostring(math.floor(weapon_data_sort[i].qty))
+
+        screen.drawText(2, i*8 + 1, name)
+        screen.drawText(4*w/5 - #qty*2.5 + 2, i*8 + 1, qty)
     end
 end

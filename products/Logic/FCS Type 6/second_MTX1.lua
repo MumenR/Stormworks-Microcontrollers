@@ -61,7 +61,7 @@ lock_on_list = {}
 is_locked_on = false
 press_tick = 0
 lock_on_ID = 0
-next_MTX_ID = 0
+next_MTX_ID = 1
 
 SHORT_PRESS_MAX_TICKS = 15
 
@@ -210,6 +210,7 @@ function onTick()
     end
     --MXT出力について時間経過と削除
     for index, TGT in pairs(lock_on_list) do
+        TGT.t_out = TGT.t_out + 1
         TGT.t = TGT.t + 1
         if TGT.t > MAX_TARGET_OUTPUT_TICK or target_data[TGT.ID] == nil then
             lock_on_list[index] = nil
@@ -403,31 +404,30 @@ function onTick()
         OUN(i, 0)
     end
 
-    --最も最後に出力した値から出力
-    for j = 0, 4 do
-        --t_out 最大値探索
-        local max_t, max_i, data_ID = 0, 0, 0
-        for index, LOCK in pairs(lock_on_list) do
-            if LOCK.t_out > max_t then
-                max_t = LOCK.t_out
-                max_i = index
-            end
-        end
-        --出力
-        if max_i ~= 0 then
-            data_ID = lock_on_list[max_i].ID
-            OUN(j*7 - 6, target_data[data_ID].predict.x.est)
-            OUN(j*7 - 5, target_data[data_ID].predict.y.est)
-            OUN(j*7 - 4, target_data[data_ID].predict.z.est)
-            OUN(j*7 - 3, target_data[data_ID].predict.x.a)
-            OUN(j*7 - 2, target_data[data_ID].predict.y.a)
-            OUN(j*7 - 1, target_data[data_ID].predict.z.a)
-            OUN(j*7 - 0, lock_on_list[max_i].MTX_ID)
+    --t_out が大きい順に
+    lock_on_list_sort = {}
+    for index, data in pairs(lock_on_list) do
+        table.insert(lock_on_list_sort, data)
+        lock_on_list_sort[#lock_on_list_sort].index = index
+    end
+    table.sort(lock_on_list_sort, function(a, b) return a.t_out > b.t_out end)
 
-            lock_on_list[max_i].t_out = 0
+    --最も最後に出力した値から出力
+    for i = 1, 4 do
+        if lock_on_list_sort[i] ~= nil then
+            data_ID = lock_on_list_sort[i].ID
+            OUN(i*7 - 6, target_data[data_ID].predict.x.est)
+            OUN(i*7 - 5, target_data[data_ID].predict.y.est)
+            OUN(i*7 - 4, target_data[data_ID].predict.z.est)
+            OUN(i*7 - 3, target_data[data_ID].predict.x.a)
+            OUN(i*7 - 2, target_data[data_ID].predict.y.a)
+            OUN(i*7 - 1, target_data[data_ID].predict.z.a)
+            OUN(i*7 - 0, lock_on_list_sort[i].MTX_ID)
+
+            lock_on_list[lock_on_list_sort[i].index].t_out = 0
         end
     end
 
     --デバッグ
-    OUN(32, #target_data)
+    OUN(32, #lock_on_list)
 end
