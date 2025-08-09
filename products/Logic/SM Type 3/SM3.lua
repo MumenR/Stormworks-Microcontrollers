@@ -77,6 +77,7 @@ lock_on = false
 
 Tx, Ty, Tz, Tvx, Tvy, Tvz = 0, 0, 0, 0, 0, 0
 radar_x, radar_y, radar_z, radar_vx, radar_vy, radar_vz = 0, 0, 0, 0, 0, 0
+gimbal_yaw, gimbal_pitch = 0, 0
 t = 0
 
 function clamp(x, min, max)
@@ -155,6 +156,18 @@ function Polar2Rect(pitch, yaw, distance, radian_bool)
     y = distance*math.cos(pitch)*math.cos(yaw)
     z = distance*math.sin(pitch)
     return x, y, z
+end
+
+--ローカル座標からローカル極座標へ変換
+function Local2Polar(x, y, z, radian_bool)
+    local pitch, yaw
+    pitch = atan2(math.sqrt(x^2 + y^2), z)
+    yaw = atan2(y, x)
+    if radian_bool then
+        return pitch, yaw
+    else
+        return pitch/(math.pi*2), yaw/(math.pi*2)
+    end
 end
 
 --PID制御
@@ -603,7 +616,8 @@ function onTick()
         --終末誘導
         elseif step3 == false then
             radar_target_distance = distance3(radar_x, radar_y, radar_z, Px, Pz, Py)
-            if terminal_guidance and target_distance < 800 and AR_lock_on then
+            --アクティブレーダー目標に切り替え
+            if terminal_guidance and target_distance < 2000 and AR_lock_on then
                 destination_x, destination_y, destination_z = cal_collision_location(radar_x, radar_y, radar_z, radar_vx, radar_vy, radar_vz, Px, Pz, Py, ave_v, radar_target_distance, 0)
             else
                 destination_x, destination_y, destination_z = cal_collision_location(Tx, Ty, Tz, Tvx, Tvy, Tvz, Px, Pz, Py, ave_v, target_distance, 2)
@@ -623,6 +637,17 @@ function onTick()
         local Lx, Ly, Lz = World2Local(destination_x, destination_y, destination_z, Px, Py, Pz, Ex, Ey, Ez)
         surface_x = -PID(P, I, D, 0, atan2(Ly, Lx), ESx, ERx, -2, 2)
         surface_y = -PID(P, I, D, 0, atan2(Ly, Lz), ESy, ERy, -2, 2)
+
+        --レーダージンバル
+        if step2 and terminal_guidance and target_distance < 2000 and AR_lock_on then
+            --終末誘導時
+            local Lx, Ly, Lz = World2Local(radar_x, radar_y, radar_z, Px, Py, Pz, Ex, Ey, Ez)
+            gimbal_pitch, gimbal_yaw = Local2Polar(Lx, Ly, Lz, false) 
+        else
+            --中間誘導時
+            local Lx, Ly, Lz = World2Local(Tx, Ty, Tz, Px, Py, Pz, Ex, Ey, Ez)
+            gimbal_pitch, gimbal_yaw = Local2Polar(Lx, Ly, Lz, false)
+        end
     else
         ESx, ERx = 0, 0
         ESy, ERy = 0, 0
@@ -633,6 +658,9 @@ function onTick()
 
     OUN(1, surface_x)
     OUN(2, surface_y)
+
+    OUN(3, gimbal_yaw)
+    OUN(4, gimbal_pitch)
 
     OUB(1, detonate)
 
