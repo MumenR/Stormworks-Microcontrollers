@@ -49,11 +49,12 @@ INN = input.getNumber
 INB = input.getBool
 OUN = output.setNumber
 OUB = output.setBool
+PRN = property.getNumber
 
 radiator_sr = false
 generator_sr = false
 min_engine_rps = 2.5
-thermal_throttling_temp = 110
+target_af_ratio = 13.7
 
 idling_error_pre = 0
 idling_error_sum = 0
@@ -103,27 +104,27 @@ function onTick()
     air_pressure = INN(6)
     battery = INN(7)
 
+    power = INN(8) == 1
+
     --propety
-    max_temp = INN(8)
-    min_temp = INN(9)
-    max_battery = INN(10)
-    min_battery = INN(11)
-    idling_rps = INN(12)
-    idling_gene_rps = INN(13)
-    target_rps = INN(14)
-    thermal_throttling_rps = INN(15)
-    max_rps = INN(16)
-    target_af_ratio = INN(17)
-    idling_P = INN(18)
-    idling_I = INN(19)
-    idling_D = INN(20)
-    idling_rps_fuel = INN(21)
-    clutch_P = INN(22)
-    clutch_I = INN(23)
-    clutch_D = INN(24)
-
-
-    power = INN(25) == 1
+    max_temp = PRN("max temp")
+    min_temp = PRN("min temp")
+    thermal_throttling_temp = PRN("thermal throttling temp")
+    max_battery = PRN("max battery")
+    min_battery = PRN("min battery")
+    idling_rps = PRN("idling rps")
+    idling_gene_rps = PRN("idling generation rps")
+    target_rps = PRN("target rps")
+    thermal_throttling_rps = PRN("thermal throttling rps")
+    max_rps = PRN("max rps")
+    
+    idling_P = PRN("idling P")
+    idling_I = PRN("idling I")
+    idling_D = PRN("idling D")
+    idling_rps_fuel = PRN("idling rps fuel")
+    clutch_P = PRN("clutch P")
+    clutch_I = PRN("clutch I")
+    clutch_D = PRN("clutch D")
 
     --スターター
     starter = power and engine_rps < min_engine_rps
@@ -223,5 +224,3 @@ function onTick()
     OUB(4, generator)
     OUB(5, generator_gear)
 end
-
-

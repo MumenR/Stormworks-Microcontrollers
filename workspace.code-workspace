@@ -57,6 +57,10 @@
 			"path": "products/Logic/Engine Controller V4"
 		},
 		{
+			"name": "Engine Controller V5",
+			"path": "products/Logic/Engine Controller V5"
+		},
+		{
 			"name": "FCS Exchanger V1",
 			"path": "products/Logic/FCS Exchanger V1"
 		},
@@ -119,6 +123,10 @@
 		{
 			"name": "Map V3",
 			"path": "products/Logic/Map V3"
+		},
+		{
+			"name": "Moduler engine generator V3",
+			"path": "products/Logic/Moduler engine generator V3"
 		},
 		{
 			"name": "Multifunction Display V1",
