@@ -55,7 +55,6 @@ OUN = output.setNumber
 OUB = output.setBool
 PRN = property.getNumber
 
-
 detonate = false
 step1 = false
 step2 = false
@@ -79,6 +78,7 @@ Tx, Ty, Tz, Tvx, Tvy, Tvz = 0, 0, 0, 0, 0, 0
 radar_x, radar_y, radar_z, radar_vx, radar_vy, radar_vz = 0, 0, 0, 0, 0, 0
 gimbal_yaw, gimbal_pitch = 0, 0
 t = 0
+self_destruct_t = 0
 
 function clamp(x, min, max)
     if x >= max then
@@ -343,6 +343,12 @@ function onTick()
 
     wpn_model_no = PRN("Weapon Model No.")
 
+    SELF_DESTRUCT_TICK = PRN("Time to self-destruct (s)")*60
+    START_ALT = PRN("Guidance start altitude [m]")
+    CRUISE_ALT = PRN("Cruise mode altitude [m]")
+    TOP_ATTACK_ALT = PRN("Top attack mode altitude [m]")
+    SEA_SKIMMING_ALT = PRN("Sea skimming mode altitude [m]")
+
     --無線からの目標情報
     input_coor = (manual_mode and not launch) or (not manual_mode and fcs_detected)
     if input_coor then
@@ -574,7 +580,7 @@ function onTick()
             --VLS
             if type == 1 then
                 destination_x, destination_y, destination_z = Px, Pz, Py + 1000
-                if Py >= 25 and Py > launch_z + 25 then
+                if Py >= START_ALT and Py > launch_z + START_ALT then
                     step1 = true
                 end
             --ランチャー
@@ -594,21 +600,21 @@ function onTick()
             --ノーマル巡航
             elseif mode == 2 then
                 destination_x, destination_y = cruise(cruise_target_x, cruise_target_y, Px, Pz, 500)
-                destination_z = 100 + cruise_target_z
+                destination_z = CRUISE_ALT + cruise_target_z
                 if target_distance < 500 then
                     step2 = true
                 end
             --トップアタック
             elseif mode == 3 then
                 destination_x, destination_y = cruise(cruise_target_x, cruise_target_y, Px, Pz, 500)
-                destination_z = 1000 + cruise_target_z
+                destination_z = TOP_ATTACK_ALT + cruise_target_z
                 if target_distance < (Py - Tz)/math.cos(math.pi/9) then
                     step2 = true
                 end
             --シースキミング
             elseif mode == 4 then
                 destination_x, destination_y = cruise(cruise_target_x, cruise_target_y, Px, Pz, 200)
-                destination_z = 5
+                destination_z = SEA_SKIMMING_ALT
                 if target_distance < 200 then
                     step2 = true
                 end
@@ -647,6 +653,14 @@ function onTick()
             --中間誘導時
             local Lx, Ly, Lz = World2Local(Tx, Ty, Tz, Px, Py, Pz, Ex, Ey, Ez)
             gimbal_pitch, gimbal_yaw = Local2Polar(Lx, Ly, Lz, false)
+        end
+
+        --自爆カウント
+        if step1 == true then
+            self_destruct_t = self_destruct_t + 1
+            if self_destruct_t > SELF_DESTRUCT_TICK then
+                detonate = true
+            end
         end
     else
         ESx, ERx = 0, 0

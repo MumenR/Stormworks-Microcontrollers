@@ -52,7 +52,7 @@ OUB = output.setBool
 PRN = property.getNumber
 
 time_out_tick = 100
-time_out_tick_ELI = 5
+time_out_tick_ELI = 1
 weapon_data = {}
 MTX_data = {}
 is_launch = false
@@ -157,6 +157,7 @@ function onTick()
     --発射処理--
     WPN_No = INN(29)
     mode = INN(30)
+    is_ELI_fire = INB(1)
 
     HATCH_CLOSE_T = PRN("hatch close timing (s)")*60
     LAUNCH_T = PRN("launch timing (s)")*60
@@ -199,7 +200,7 @@ function onTick()
         local ID = INN(i*7)
         if ID ~= 0 then
             --初回登録
-            if MTX_data[ID] == nil then
+            if MTX_data[ID] == nil or (ID == -1 and is_ELI_fire) then
                 MTX_data[ID] = {
                     ID = ID,
                     mode = mode

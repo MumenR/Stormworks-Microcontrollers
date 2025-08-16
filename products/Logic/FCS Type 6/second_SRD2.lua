@@ -153,9 +153,10 @@ function is_MXT_out(ID)
 end
 
 function onTick()
-    VEHICLE_RADIUS = PRN("Vehicle radius [m]")
-    TARGET_DELAY = PRN("Delay [tick]")
-    MAX_TARGET_OUTPUT_TICK = PRN("Max target output time [sec]")*60
+    VEHICLE_RADIUS = PRN("Vehicle radius [m]")                          --自ビークルの半径。これ以下の場合補足されない。
+    TARGET_DELAY = PRN("Delay [tick]")                                  --ノードなどによる遅延の補正に用いる時間
+    MAX_TARGET_OUTPUT_TICK = PRN("Max target output time [sec]")*60     --ロックオンしたターゲットの最大出力時間
+    DETECTION_INTERVAL = PRN("Detection interval [tick]")               --探知間隔
 
     select_ID = INN(31)
 
@@ -179,6 +180,7 @@ function onTick()
             [ID] = {
                 position = {
                     {x = world X, y = world Y, z = world Z, t = tick},
+                    tは0が最新、過去データほど負に
                     ...
                 },
                 predict = {
@@ -187,7 +189,7 @@ function onTick()
                     z = {a = least ax, b = least bx, est = estimation},
                 },
                 ID = target ID,
-                t_last = -last tick
+                t_last = -last tick, 最後に更新してから経過した時間
                 t_out = output tick
             },
             ...
@@ -204,10 +206,10 @@ function onTick()
 
         --最大サンプル保持時間算出
         local distance = distance3(Px, Pz, Py, DATA.position[#DATA.position].x, DATA.position[#DATA.position].y, DATA.position[#DATA.position].z)
-        t_max = clamp(350*distance/6000 + 150 - 350/3, 150, 1000)
+        local t_max = clamp(120*distance/1000 + 10, 2.5*DETECTION_INTERVAL, math.huge)
     
         --データ削除
-        if DATA.t_last > t_max then
+        if DATA.t_last > t_max or DATA.t_last > DETECTION_INTERVAL*3 then
             target_data[ID] = nil
         else
             local i = 1

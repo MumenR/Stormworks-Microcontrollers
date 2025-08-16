@@ -60,7 +60,7 @@ PRT = property.getText
 target_data = {}
 weapon_data = {}
 time_out_tick = 100
-time_out_tick_ELI = 10
+time_out_tick_ELI = 3
 
 function onTick()
     is_ELI = INB(1)
@@ -78,6 +78,11 @@ function onTick()
         if (data.t > time_out_tick and ID ~= -1) or (data.t > time_out_tick_ELI and ID == -1) then
             target_data[ID] = nil
         end
+    end
+
+    --ELIデータ削除
+    if is_fire and not is_fire_pulse then
+        target_data[-1] = nil
     end
 
     --武器データ取り込み weapon_data
@@ -106,9 +111,9 @@ function onTick()
             if weapon_data[last_wpn_no].qty ~= last_wpn_qty then
                 weapon_data[last_wpn_no].is_wpnbusy = false
             end
+            --更新
+            weapon_data[last_wpn_no].qty = last_wpn_qty
         end
-        --更新
-        weapon_data[last_wpn_no].qty = last_wpn_qty
     end
 
     --目標データ取り込み target_data
@@ -177,53 +182,71 @@ function onTick()
     --出力リセット
     for i = 1, 32 do
         OUN(i, 0)
+        OUB(i, false)
     end
     OUN(29, WPN_No)
     OUN(30, mode)
 
     --出力
     --t_outが大きい順にソート
-    local target_data_sort, j = {}, 1
+    local target_data_sort, is_new_target_out, i, j = {},  false, 1, 1
     for _, data in pairs(target_data) do
         table.insert(target_data_sort, data)
     end
     table.sort(target_data_sort, function(a, b) return a.t_out > b.t_out end)
-    if is_fire then
-        for i = 1, 4 do
-            --連続出力防止用判定
-            while j <= #target_data_sort do
-                if not target_data_sort[j].is_output then
-                    if weapon_data[target_data_sort[j].no] ~= nil then
-                        if not weapon_data[target_data_sort[j].no].is_wpnbusy then
-                            weapon_data[target_data_sort[j].no].is_wpnbusy = true
-                            target_data[target_data_sort[j].ID].is_output = true
-                            OUN(29, target_data_sort[j].no)
-                            OUN(30, target_data_sort[j].mode)
-                            break
+
+    --t_outが大きい順に出力、新規目標はis_fireがオン且つ1つまで出力可能
+    while i <= #target_data_sort and j <= 4 do
+        local ID, No = target_data_sort[i].ID, target_data_sort[i].no
+        --出力可能か判定(新規目標で、重複出力のときとnot is fireのパターンを除外)
+        if target_data[ID].is_output or (is_fire and not is_new_target_out) then
+            --新規目標のとき
+            if not target_data[ID].is_output then
+                --WPN busyではないことを確認
+                if weapon_data[No] ~= nil then
+                    if not weapon_data[No].is_wpnbusy then
+                        weapon_data[No].is_wpnbusy = true
+                        target_data[ID].is_output = true
+                        is_new_target_out = true
+                        OUN(29, target_data[ID].no)
+                        OUN(30, target_data[ID].mode)
+
+                        OUN(7*j - 6, target_data[ID].x)
+                        OUN(7*j - 5, target_data[ID].y)
+                        OUN(7*j - 4, target_data[ID].z)
+                        OUN(7*j - 3, target_data[ID].vx)
+                        OUN(7*j - 2, target_data[ID].vy)
+                        OUN(7*j - 1, target_data[ID].vz)
+                        OUN(7*j - 0, target_data[ID].ID)
+                        target_data[ID].t_out = 0
+                        j = j + 1
+
+                        --ELIのとき
+                        if ID == -1 then
+                            OUB(1, true)
                         end
                     end
-                else
-                    break
                 end
+            --新規目標ではないとき
+            else
+                OUN(7*j - 6, target_data[ID].x)
+                OUN(7*j - 5, target_data[ID].y)
+                OUN(7*j - 4, target_data[ID].z)
+                OUN(7*j - 3, target_data[ID].vx)
+                OUN(7*j - 2, target_data[ID].vy)
+                OUN(7*j - 1, target_data[ID].vz)
+                OUN(7*j - 0, target_data[ID].ID)
+                target_data[ID].t_out = 0
                 j = j + 1
             end
-            --出力
-            if target_data_sort[j] ~= nil then
-                OUN(7*i - 6, target_data_sort[j].x)
-                OUN(7*i - 5, target_data_sort[j].y)
-                OUN(7*i - 4, target_data_sort[j].z)
-                OUN(7*i - 3, target_data_sort[j].vx)
-                OUN(7*i - 2, target_data_sort[j].vy)
-                OUN(7*i - 1, target_data_sort[j].vz)
-                OUN(7*i - 0, target_data_sort[j].ID)
-                target_data[target_data_sort[j].ID].t_out = 0
-            else
-                break
-            end
         end
-    end
-end
 
+        i = i + 1
+    end
+
+    is_fire_pulse = is_fire
+end
+--[[
 function onDraw()
     screen.drawText(1, 1, "#target_data:"..#target_data)
 
@@ -250,3 +273,5 @@ function bool_to_text(is)
         return "False"
     end
 end
+
+]]
