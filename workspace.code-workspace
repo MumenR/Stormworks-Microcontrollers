@@ -85,6 +85,10 @@
 			"path": "products/Logic/FCS Type 6"
 		},
 		{
+			"name": "FCS Type 7",
+			"path": "products/Logic/FCS Type 7"
+		},
+		{
 			"name": "Fuel crusing distance meter V1",
 			"path": "products/Logic/Fuel crusing distance meter V1"
 		},
