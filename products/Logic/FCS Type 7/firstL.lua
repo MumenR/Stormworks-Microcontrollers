@@ -60,6 +60,12 @@ tgt_filted = {}
 max_t = 1
 t = 0
 
+offset = {
+    Lx = -0.5,
+    Ly = 0,
+    Lz = -0.25,
+}
+
 function atan2(x, y)
     if x >= 0 then
         ans = math.atan(y/x)
@@ -114,8 +120,8 @@ end
 --ヨーとピッチを交代(左に傾いている場合)
 function swapYawPitchL(distance, yaw, pitch)
     local Lx, Ly, Lz
-    Lz, Ly, Lx = polar2Rect(distance, yaw, pitch, false)
-    return rect2Polar(-Lx, Ly, Lz, false)
+    Lx, Ly, Lz = polar2Rect(distance, yaw, pitch, false)
+    return rect2Polar(-Lz - offset.Lx , Ly - offset.Ly, Lx - offset.Lz, false)
 end
 
 function onTick()
@@ -175,7 +181,7 @@ function onTick()
             local distance, yaw, pitch = swapYawPitchL(tgt_filted[i][1], tgt_filted[i][2], tgt_filted[i][3])
             OUB(i, true)
             OUN(3*i - 2, distance)
-            OUN(3*i - 2, yaw)
+            OUN(3*i - 1, yaw)
             OUN(3*i - 0, pitch)
         end
 

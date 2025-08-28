@@ -57,6 +57,12 @@ OUB = output.setBool
 tgt_raw = {}
 tgt_filted = {}
 
+offset = {
+    Lx = 0.25,
+    Ly = 0,
+    Lz = -0.25,
+}
+
 max_t = 1
 t = 0
 
@@ -114,8 +120,8 @@ end
 --ヨーとピッチを交代(右に傾いている場合)
 function swapYawPitchR(distance, yaw, pitch)
     local Lx, Ly, Lz
-    Lz, Ly, Lx = polar2Rect(distance, yaw, pitch, false)
-    return rect2Polar(Lx, Ly, -Lz, false)
+    Lx, Ly, Lz = polar2Rect(distance, yaw, pitch, false)
+    return rect2Polar(Lz - offset.Lx, Ly - offset.Ly, -Lx - offset.Lz, false)
 end
 
 function onTick()
@@ -172,10 +178,10 @@ function onTick()
     if t <= max_t then
 
         for i = 1, #tgt_filted do
-            local distance, yaw, pitch = swapYawPitchR(tgt_filted[i][1], tgt_filted[i][2], tgt_filted[i][3])
+            local distance, yaw, pitch = swapYawPitchR(tgt_filted[i][1], -tgt_filted[i][2], tgt_filted[i][3])
             OUB(i, true)
             OUN(3*i - 2, distance)
-            OUN(3*i - 2, yaw)
+            OUN(3*i - 1, yaw)
             OUN(3*i - 0, pitch)
         end
 

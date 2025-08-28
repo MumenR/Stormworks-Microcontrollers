@@ -76,9 +76,9 @@ function onTick()
     end
     
     radar1 = power and ticks > 0
-    radar2 = power and ticks > 65
-    radar3 = power and ticks > 130
-    radar4 = power and ticks > 195
+    radar2 = power and ticks > 1
+    radar3 = power and ticks > 2
+    radar4 = power and ticks > 3
 
     OUB(1, radar1)
     OUB(2, radar2)
