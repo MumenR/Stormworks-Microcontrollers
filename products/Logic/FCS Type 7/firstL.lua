@@ -66,16 +66,6 @@ offset = {
     Lz = -0.25,
 }
 
-function atan2(x, y)
-    if x >= 0 then
-        ans = math.atan(y/x)
-    elseif y >= 0 then
-        ans = math.atan(y/x) + math.pi
-    else
-        ans = math.atan(y/x) - math.pi
-    end
-    return ans
-end
 
 --最小値と最大値でフィルタリング
 function maxMin(table)
@@ -95,7 +85,7 @@ end
 function rect2Polar(x, y, z, radian_bool)
     local distance, yaw, pitch
     distance = math.sqrt(x^2 + y^2 + z^2)
-    yaw = atan2(y, x)
+    yaw = math.atan(x, y)
     pitch = math.asin(z/distance)
     if radian_bool then
         return distance, yaw, pitch

@@ -14,7 +14,7 @@ do
     ---@type Simulator -- Set properties and screen sizes here - will run once when the script is loaded
     simulator = simulator
     simulator:setScreen(1, "3x3")
-    simulator:setProperty("ExampleNumberProperty", 123)
+    simulator:setProperty("Vehicle radius [m]", 15)
 
     -- Runs every tick just before onTick; allows you to simulate the inputs changing
     ---@param simulator Simulator Use simulator:<function>() to set inputs etc.
@@ -23,13 +23,13 @@ do
         math.randomseed(ticks)
 
         range = (simulator:getSlider(1)+0.001)*10000
-        phi = simulator:getSlider(2)*10000
+        phi = simulator:getSlider(2)*100
 
         simulator:setInputNumber(32, phi)
 
-        simulator:setInputNumber(1, range + 0.01*range*math.random())
-        simulator:setInputNumber(2, math.random()*0.001)
-        simulator:setInputNumber(3, math.random()*0.001)
+        simulator:setInputNumber(1, range + 0.01*range*math.random()/5)
+        simulator:setInputNumber(2, math.random()*0.002/5)
+        simulator:setInputNumber(3, math.random()*0.002/5)
     end;
     simulator:setInputBool(1, true)
 end
@@ -49,10 +49,12 @@ PRN = property.getNumber
 
 CAM_RAD_MIN = 0.025/2
 CAM_RAD_MAX = 2.2/2
-dt = 1/60
+dt = 1
+ELI2_DELAY = 8
+EKF_CONVERGENCE_TICK = 5
 
-MAX_V = 300
-MAX_A = 300     --m/s*s
+MAX_V = 300/60
+MAX_A = 300/3600     --m/tick*tick
 data = {}
 
 -- 9*9単位行列
@@ -158,12 +160,33 @@ matrix = {
     end
 }
 
+--回転行列用
+rotation = {
+    R = function(Ex, Ey, Ez)
+        return {
+            {math.cos(Ez)*math.cos(Ey), math.cos(Ez)*math.sin(Ey)*math.cos(Ex) + math.sin(Ez)*math.sin(Ex), math.cos(Ez)*math.sin(Ey)*math.sin(Ex) - math.sin(Ez)*math.cos(Ex)},
+            {-math.sin(Ey), math.cos(Ey)*math.cos(Ex),  math.cos(Ey)*math.sin(Ex)},
+            {math.sin(Ez)*math.cos(Ey), math.sin(Ez)*math.sin(Ey)*math.cos(Ex) - math.cos(Ez)*math.sin(Ex), math.sin(Ez)*math.sin(Ey)*math.sin(Ex) + math.cos(Ez)*math.cos(Ex)}
+        }
+    end,
+
+    local2World = function(Lx, Ly, Lz, Px, Py, Pz, Ex, Ey, Ez)
+        local W = matrix.add(matrix.mul(rotation.R(Ex, Ey, Ez), matrix.transpose({{Lx, Ly, Lz}})), matrix.transpose({{Px, Pz, Py}}))
+        return W[1][1], W[2][1], W[3][1]
+    end,
+
+    world2Local = function(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
+        local L = matrix.mul(matrix.transpose(rotation.R(Ex, Ey, Ez)), matrix.sub(matrix.transpose({{Wx, Wy, Wz}}), matrix.transpose({{Px, Pz, Py}})))
+        return L[1][1], L[2][1], L[3][1]
+    end
+}
+
 --拡張カルマンフィルタ
 EKF = { 
     --初期化
     --[[
         data[ID] = {
-            x = 状態変数ベクトル
+            x = 状態変数ベクトル = {{x, vx, ax, y, vy, ay, z, vz, az}}^T
             P = 状態変数共分散行列
             z = 観測値ベクトル
             H = ヤコビアン
@@ -171,13 +194,14 @@ EKF = {
             y = 残差
             R = 観測ノイズ行列
             K = カルマンゲイン
+            t = 探知開始からの経過チック
             is_update = 更新した
         }
     ]]
     intialize = function(newTarget)
         local r, Wx, Wy, Wz
         r = (newTarget.dist*0.02)^2/60
-        Wx, Wy, Wz = Local2World(newTarget.Lx, newTarget.Ly, newTarget.Lz, Px, Py, Pz, Ex, Ey, Ez)
+        Wx, Wy, Wz = rotation.local2World(newTarget.Lx, newTarget.Ly, newTarget.Lz, Px, Py, Pz, Ex, Ey, Ez)
         return {
             x = matrix.transpose({{Wx, 0, 0, Wy, 0, 0, Wz, 0, 0}}),
             P = {
@@ -191,6 +215,7 @@ EKF = {
                 {0, 0, 0, 0, 0, 0, 0, r, 0},
                 {0, 0, 0, 0, 0, 0, 0, 0, r}
             },
+            t = 0,
             is_update = true
         }
     end,
@@ -240,85 +265,40 @@ EKF = {
             {az}
         }
         P = matrix.add(matrix.mul(matrix.mul(F, targetData.P), matrix.transpose(F)), Q)
-        return {x = X, P = P, F = F, Q = Q}
+        return {x = X, P = P, F = F, Q = Q, t = targetData.t}
     end,
 
     --更新
     update = function(predictData, newTarget)
-        local H, hx, z, y, R, K, x, P, r, rxy
-        local Lx, Ly, Lz = world2Local(predictData.x[1][1], predictData.x[4][1], predictData.x[7][1], Px, Py, Pz, Ex, Ey, Ez)
+        local Hl, H, hx, z, y, R, K, x, P, r, rxy, t
+        local Lx, Ly, Lz = rotation.world2Local(predictData.x[1][1], predictData.x[4][1], predictData.x[7][1], Px, Py, Pz, Ex, Ey, Ez)
         r, rxy = math.sqrt(Lx^2 + Ly^2 + Lz^2), math.sqrt(Lx^2 + Ly^2)
-        H = {
-            {Lx/r, 0, 0, Ly/r, 0, 0, Lz/r},
-            {Ly/rxy^2, 0, 0, -Lx/rxy^2, 0, 0, 0},
-            {-Lx*Lz/r^2*rxy, 0, 0, -Ly*Lz/r^2*rxy, 0, 0, rxy/r^2}
+        Hl = {
+            {Lx/r, Ly/r, Lz/r},
+            {Ly/rxy^2, -Lx/rxy^2, 0},
+            {-Lx*Lz/(r^2*rxy), -Ly*Lz/(r^2*rxy), rxy/r^2}
         }
-        hx = matrix.transpose({{r, atan2(Ly, Lx), math.asin(Lz/r)}})
+        Hl = matrix.mul(Hl, matrix.transpose(rotation.R(Ex, Ey, Ez)))
+        H = {}
+        for i = 1, 3 do
+            H[i] = {Hl[i][1], 0, 0, Hl[i][2], 0, 0, Hl[i][3], 0, 0}
+        end
+
+        hx = matrix.transpose({{r, math.atan(Lx, Ly), math.asin(Lz/r)}})
         z = matrix.transpose({{newTarget.dist, newTarget.yaw, newTarget.pitch}})
         y = matrix.sub(z, hx)
         R = {
             {(newTarget.dist*0.02)^2/60, 0, 0},
-            {0, 0.002^2/60, 0},
-            {0, 0, 0.002^2/60}
+            {0, (math.pi*2*0.002)^2/60, 0},
+            {0, 0, (math.pi*2*0.002)^2/60}
         }
         K = matrix.mul(matrix.mul(predictData.P, matrix.transpose(H)), matrix.inv(matrix.add(matrix.mul(matrix.mul(H, predictData.P), matrix.transpose(H)), R)))
         x = matrix.add(predictData.x, matrix.mul(K, y))
         P = matrix.mul(matrix.sub(I, matrix.mul(K, H)), predictData.P)
-        return {x = x, P = P, H = H, hx = hx, z = z, y = y, R = R, K = K, is_update = true}
+        t = predictData.t + 1
+        return {x = x, P = P, H = H, hx = hx, z = z, y = y, R = R, K = K, t = t, is_update = true}
     end
 }
-
-
-
-function atan2(x, y)
-    if x >= 0 then
-        ans = math.atan(y/x)
-    elseif y >= 0 then
-        ans = math.atan(y/x) + math.pi
-    else
-        ans = math.atan(y/x) - math.pi
-    end
-    return ans
-end
-
---ワールド座標からローカル座標へ(physics sensor使用)
-function world2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
-    local a, b, c, d, e, f, g, h, i, j, k, l, x, z, y, Lower
-	Wx = Wx - Px
-	Wy = Wy - Pz
-	Wz = Wz - Py
-	a = math.cos(Ez)*math.cos(Ey)
-	b = math.cos(Ez)*math.sin(Ey)*math.sin(Ex) - math.sin(Ez)*math.cos(Ex)
-	c = math.cos(Ez)*math.sin(Ey)*math.cos(Ex) + math.sin(Ez)*math.sin(Ex)
-	d = Wx
-	e = math.sin(Ez)*math.cos(Ey)
-	f = math.sin(Ez)*math.sin(Ey)*math.sin(Ex) + math.cos(Ez)*math.cos(Ex)
-	g = math.sin(Ez)*math.sin(Ey)*math.cos(Ex) - math.cos(Ez)*math.sin(Ex)
-	h = Wz
-	i = -math.sin(Ey)
-	j = math.cos(Ey)*math.sin(Ex)
-	k = math.cos(Ey)*math.cos(Ex)
-	l = Wy
-	Lower = ((a*f-b*e)*k + (c*e - a*g)*j + (b*g - c*f)*i)
-	x = 0
-	y = 0
-	z = 0
-	if Lower ~= 0 then
-		x = ((b*g - c*f)*l + (d*f - b*h)*k + (c*h - d*g)*j)/Lower
-		y = -((a*g - c*e)*l + (d*e - a*h)*k + (c*h - d*g)*i)/Lower
-		z = ((a*f - b*e)*l + (d*e - a*h)*j + (b*h - d*f)*i)/Lower
-	end
-	return x, z, y
-end
-
---ローカル座標からワールド座標へ変換(physics sensor使用)
-function Local2World(Lx, Ly, Lz, Px, Py, Pz, Ex, Ey, Ez)
-    local RetX, RetY, RetZ
-	RetX = math.cos(Ez)*math.cos(Ey)*Lx + (math.cos(Ez)*math.sin(Ey)*math.sin(Ex) - math.sin(Ez)*math.cos(Ex))*Lz + (math.cos(Ez)*math.sin(Ey)*math.cos(Ex) + math.sin(Ez)*math.sin(Ex))*Ly
-	RetY = math.sin(Ez)*math.cos(Ey)*Lx + (math.sin(Ez)*math.sin(Ey)*math.sin(Ex) + math.cos(Ez)*math.cos(Ex))*Lz + (math.sin(Ez)*math.sin(Ey)*math.cos(Ex) - math.cos(Ez)*math.sin(Ex))*Ly
-	RetZ = -math.sin(Ey)*Lx + math.cos(Ey)*math.sin(Ex)*Lz + math.cos(Ey)*math.cos(Ex)*Ly
-	return RetX + Px, RetZ + Pz, RetY + Py
-end
 
 --極座標から直交座標へ変換(Z軸優先)
 function polar2Rect(dist, yaw, pitch, radianBool)
@@ -337,7 +317,7 @@ end
 function rect2Polar(x, y, z, radianBool)
     local distance, yaw, pitch
     distance = math.sqrt(x^2 + y^2 + z^2)
-    yaw = atan2(y, x)
+    yaw = math.atan(x, y)
     pitch = math.asin(z/distance)
     if radianBool then
         return distance, yaw, pitch
@@ -346,7 +326,7 @@ function rect2Polar(x, y, z, radianBool)
     end
 end
 
---ワールド直交座標からディスプレイ座標へ変換(fovはラジアン)
+--ローカル直交座標からディスプレイ座標へ変換(fovはラジアン)
 function localRect2Display(Lx, Ly, Lz, w, h, fovW, fovH)
     local Dx, Dy, drawable
 
@@ -368,7 +348,7 @@ function distance3(x1, y1, z1, x2, y2 ,z2)
     return math.sqrt((x1 - x2)^2 + (y1 - y2)^2 + (z1 - z2)^2)
 end
 
---カメラズーム変換(FOVはラジアン)
+--カメラズーム変換(FOVはラジアン, 出力：0-1の制御用値, 描画計算用FOVラジアン値)
 function calZoom(zoomManual, MIN_FOV, MAX_FOV)
     local a, C, zoomRadManual, zoomRadCaled
 
@@ -400,28 +380,49 @@ function nextID()
     return nextID
 end
 
+--３次元未来位置(位置、速度、加速度)
+function calFuturePos(x, y, z, vx, vy, vz, ax, ay, az, t)
+    return (ax*t^2)/2 + vx*t + x, (ay*t^2)/2 + vy*t + y, (az*t^2)/2 + vz*t + z, ax*t + vx, ay*t + vy, az*t + vz
+end
+
+function bool2Num(Bool)
+    local ans = 0
+    if Bool then
+        ans = 1
+    end
+    return ans
+end
+
 zoomManual = 0
 posDelayBuffer = {}
+pitchDelayBuffer = {}
+laserPulse = false
+autoaimPulse = false
+ELI2ID = 0
 function onTick()
 
     VEHICLE_RADIUS = PRN("Vehicle radius [m]")
-    ZOOM_GAIN = PRN("Zoom speed gain")
-    MIN_FOV = PRN("Min fov [rad]")/2
-    MAX_FOV = PRN("Max fov [rad]")/2
+    RADAR_FOV = PRN("Radar fov")
 
     laserDist = INN(28)
-    seatIn3 = INN(29)
-    currentPitch = INN(30)
+    seatQE = INN(29)
 
     PHI = INN(32)
 
     power = INB(9)
+    autoaimEnabled = INB(10)
+    laserEnabled = INB(11)
+
+    DELAY = INN(31)
 
     --ズーム計算
+    MIN_FOV = PRN("Cam min fov [rad]")/2
+    MAX_FOV = PRN("Cam max fov [rad]")/2
+    ZOOM_GAIN = PRN("Zoom speed gain")
     if power then
-        if seatIn3 == -1 and zoomManual > 0 then
+        if seatQE == -1 and zoomManual > 0 then
             zoomManual = zoomManual - 0.01*ZOOM_GAIN
-        elseif seatIn3 == 1 and zoomManual < 1 then
+        elseif seatQE == 1 and zoomManual < 1 then
             zoomManual = zoomManual + 0.01*ZOOM_GAIN
         end
     else
@@ -431,16 +432,22 @@ function onTick()
 
     --フィジックス情報取り込み
     --遅延生成
-    table.insert(posDelayBuffer, {Px = INN(22), Py = INN(23), Pz = INN(24), Ex = INN(25), Ey = INN(26), Ez = INN(27)})
+    nowPx, nowPy, nowPz, nowEx, nowEy, nowEz = INN(22), INN(23), INN(24), INN(25), INN(26), INN(27)
+    table.insert(posDelayBuffer, {nowPx, nowPy, nowPz, nowEx, nowEy, nowEz})
+    table.insert(pitchDelayBuffer, INN(30))
     while #posDelayBuffer > 7  do
         table.remove(posDelayBuffer, 1)
     end
-    Px = posDelayBuffer[1].Px
-    Py = posDelayBuffer[1].Py
-    Pz = posDelayBuffer[1].Pz
-    Ex = posDelayBuffer[1].Ex
-    Ey = posDelayBuffer[1].Ey
-    Ez = posDelayBuffer[1].Ez
+    while #pitchDelayBuffer > 3  do
+        table.remove(pitchDelayBuffer, 1)
+    end
+    Px = posDelayBuffer[1][1]
+    Py = posDelayBuffer[1][2]
+    Pz = posDelayBuffer[1][3]
+    Ex = posDelayBuffer[1][4]
+    Ey = posDelayBuffer[1][5]
+    Ez = posDelayBuffer[1][6]
+    currentPitch = pitchDelayBuffer[1]*math.pi*2
 
     --データ更新リセット
     for ID, DATA in pairs(data) do
@@ -453,9 +460,9 @@ function onTick()
     for i = 1, 7 do
         local dist, yaw, pitch, Lx, Ly, Lz
         dist = INN(i*3 - 2)
-        yaw = INN(i*3 - 1)
-        pitch = INN(i*3 - 0)
-        Lx, Ly, Lz = polar2Rect(dist, yaw, pitch, false)
+        yaw = INN(i*3 - 1)*math.pi*2
+        pitch = INN(i*3 - 0)*math.pi*2
+        Lx, Ly, Lz = polar2Rect(dist, yaw, pitch, true)
 
         if INB(i) and dist >= VEHICLE_RADIUS then
             --追加
@@ -492,7 +499,7 @@ function onTick()
             sumZ = sumZ + C.Lz
         end
         local Lx, Ly, Lz = sumX/#sameTGT, sumY/#sameTGT, sumZ/#sameTGT
-        local dist, yaw, pitch = rect2Polar(Lx, Ly, Lz, false)
+        local dist, yaw, pitch = rect2Polar(Lx, Ly, Lz, true)
         newTGT[i] = {
             dist = dist,
             yaw = yaw,
@@ -503,10 +510,13 @@ function onTick()
         }
     end
 
+    --描画用コピーの作成
+    newTGTDraw = {table.unpack(newTGT)}
+
     --目標同定(マハラノビス距離が最小)
-    for ID, data in pairs(data) do
+    for ID, DATA in pairs(data) do
         --共分散行列、平均ベクトルの変換
-        local mean, var, predict = {}, {}, EKF.predict(data, dt, PHI)
+        local mean, var, predict = {}, {}, EKF.predict(DATA, dt, PHI)
         for i = 1, 3 do
             mean[i], var[i] = {predict.x[3*i - 2][1]}, {}
             for j = 1, 3 do
@@ -517,12 +527,9 @@ function onTick()
         --マハラノビス距離が最小のものを探索
         local minDist, minIndex = math.huge, 0
         for index, new in pairs(newTGT) do
-            local x, distMaha
-            x = {
-                {new.dist},
-                {new.yaw},
-                {new.pitch}
-            }
+            local x, distMaha, Wx, Wy, Wz
+            Wx, Wy, Wz = rotation.local2World(new.Lx, new.Ly, new.Lz, Px, Py, Pz, Ex, Ey, Ez)
+            x = matrix.transpose({{Wx, Wy, Wz}})
             distMaha = mahalanobisDistance(x, mean, var)
             if distMaha < minDist then
                 minDist = distMaha
@@ -531,9 +538,8 @@ function onTick()
         end
 
         --規定以下ならデータ追加、EKF更新
-        OUN(31, minDist)
         if newTGT[minIndex] ~= nil then
-            local error = MAX_V*dt + 0.02*newTGT[minIndex].dist
+            local error = (MAX_A*dt*dt/2 + MAX_V*dt + 0.02*newTGT[minIndex].dist + VEHICLE_RADIUS)*2
             if minDist < error then
                 data[ID] = EKF.update(predict, newTGT[minIndex])
                 newTGT[minIndex] = nil
@@ -555,32 +561,78 @@ function onTick()
     end
     
     --画面中央に最も近い目標の選択
-    for ID, value in pairs(data) do
-        
-    end
-
-
-    OUN(32, zoomCaled)
-
-    if #data > 0 then
-        for ID, DATA in pairs(data) do
-            OUN(1, DATA.x[1][1])
-            OUN(2, DATA.x[4][1])
-            OUN(3, DATA.x[7][1])
+    minID, minDist = 0, math.huge
+    for ID, DATA in pairs(data) do
+        local Lx, Ly, Lz = rotation.world2Local(DATA.x[1][1], DATA.x[4][1], DATA.x[7][1], Px, Py, Pz, Ex, Ey, Ez)
+        Lx, Ly, Lz = rotation.world2Local(Lx, Ly, Lz, 0, 0, 0, -currentPitch, 0, 0)
+        dist = math.sqrt(Lx^2 + Lz^2)/Ly
+        if dist < minDist then
+            minID = ID
+            minDist = dist
         end
     end
+
+    ELI2Exists = (laserEnabled and laserDist ~= 4000 and laserDist ~= 0) or (not laserEnabled and #data > 0)
+
+    --出力
+    if laserEnabled then
+        --レーザー
+        if not autoaimEnabled or not laserPulse then
+            local Lx, Ly, Lz = polar2Rect(laserDist, 0, currentPitch, true)
+            laserWx, laserWy, laserWz = rotation.local2World(Lx, Ly, Lz, nowPx, nowPy, nowPz, nowEx, nowEy, nowEz)
+        end
+        ELI2X, ELI2Y, ELI2Z = laserWx, laserWy, laserWz
+        ELI2Vx, ELI2Vy, ELI2Vz = 0, 0, 0
+        ELI2ID = 0
+    elseif ELI2Exists then
+        --レーダー
+        if not autoaimEnabled or not autoaimPulse then
+            ELI2ID = minID
+        end
+
+        if data[ELI2ID] ~= nil then
+            if data[ELI2ID].t > EKF_CONVERGENCE_TICK then
+                ELI2X, ELI2Y, ELI2Z, ELI2Vx, ELI2Vy, ELI2Vz = calFuturePos(data[ELI2ID].x[1][1], data[ELI2ID].x[4][1], data[ELI2ID].x[7][1], data[ELI2ID].x[2][1], data[ELI2ID].x[5][1], data[ELI2ID].x[8][1], data[ELI2ID].x[3][1], data[ELI2ID].x[6][1], data[ELI2ID].x[9][1], ELI2_DELAY)
+            else
+                ELI2Exists = false
+            end
+        else
+            ELI2Exists = false
+        end
+    else
+        ELI2X, ELI2Y, ELI2Z = 0, 0, 0
+        ELI2Vx, ELI2Vy, ELI2Vz = 0, 0, 0
+        ELI2ID = 0
+    end
+    laserPulse = laserEnabled
+    autoaimPulse = ELI2Exists and autoaimEnabled and not laserEnabled
+
+
+    OUB(1, ELI2Exists)
+    OUN(1, ELI2X)
+    OUN(2, ELI2Y)
+    OUN(3, ELI2Z)
+    OUN(4, ELI2Vx)
+    OUN(5, ELI2Vy)
+    OUN(6, ELI2Vz)
+    OUN(7, bool2Num(ELI2Exists))
+
+    OUN(8, zoomRadCaled)
+    OUN(32, zoomCaled)
 end
 
 function onDraw()
     w = screen.getWidth()
     h = screen.getHeight()
-    fovW = 2*zoomRadCaled*(h/w)
+    fovW = 2*zoomRadCaled*(w/h)
     fovH = 2*zoomRadCaled
 
     --レーダー反応描画(生データ)
     screen.setColor(0, 255, 0)
-    for _, tgt in pairs(newTGT) do
-        local x1, y1, drawable1 = localRect2Display(tgt.Lx, tgt.Ly, tgt.Lz, w, h, fovW, fovH)
+    for _, tgt in pairs(newTGTDraw) do
+        local Lx, Ly, Lz, x1, y1, drawable1
+        Lx, Ly, Lz = rotation.world2Local(tgt.Lx, tgt.Ly, tgt.Lz, 0, 0, 0, -currentPitch, 0, 0)
+        x1, y1, drawable1 = localRect2Display(Lx, Ly, Lz, w, h, fovW, fovH)
         x1 = math.floor(x1)
         y1 = math.floor(y1)
         if drawable1 then
@@ -590,15 +642,36 @@ function onDraw()
     end
 
     --レーダー反応描画(フィルタリング)
-    screen.setColor(255, 0, 0)
-    for _, tgt in pairs(data) do
-        local Lx, Ly, Lz = world2Local(tgt.x[1][1], tgt.x[4][1], tgt.x[7][1], Px, Py, Pz, Ex, Ey, Ez)
-        local x1, y1, drawable1 = localRect2Display(Lx, Ly, Lz, w, h, fovW, fovH)
+    for ID, tgt in pairs(data) do
+        if ID == ELI2ID then
+            screen.setColor(255, 0, 0)
+        else
+            screen.setColor(0, 255, 0)
+        end
+        local Wx, Wy, Wz, Lx, Ly, Lz, x1, y1, drawable1
+        Wx, Wy, Wz = calFuturePos(tgt.x[1][1], tgt.x[4][1], tgt.x[7][1], tgt.x[2][1], tgt.x[5][1], tgt.x[8][1], tgt.x[3][1], tgt.x[6][1], tgt.x[9][1], ELI2_DELAY)
+        Lx, Ly, Lz = rotation.world2Local(Wx, Wy, Wz, nowPx, nowPy, nowPz, nowEx, nowEy, nowEz)
+        Lx, Ly, Lz = rotation.world2Local(Lx, Ly, Lz, 0, 0, 0, -currentPitch, 0, 0)
+        x1, y1, drawable1 = localRect2Display(Lx, Ly, Lz, w, h, fovW, fovH)
         x1 = math.floor(x1)
         y1 = math.floor(y1)
+
         if drawable1 then
             --円
             screen.drawCircle(x1, y1, 4)
+            screen.drawText(x1, y1 + 5, ID)
         end
     end
+
+    --レーダーFOV表示
+    screen.setColor(0, 255, 0)
+    local x1, y1, x2, y2
+    x2 = math.floor(math.pi*2*RADAR_FOV*(h/fovH))
+    y2 = x2
+    x1 = math.floor(w/2 - x2/2)
+    y1 = math.floor(h/2 - x2/2)
+    screen.drawRect(x1, y1, x2, y2)
+
+    screen.drawText(1, 1, #newTGT)
+    screen.drawText(1, 10, ELI2ID)
 end
