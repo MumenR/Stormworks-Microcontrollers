@@ -677,6 +677,7 @@ function onTick()
     OUN(4, gimbal_pitch)
 
     OUB(1, detonate)
+    OUB(2, launch)
 
     OUN(32, wpn_model_no)
 end

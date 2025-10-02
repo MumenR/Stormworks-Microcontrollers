@@ -1,56 +1,131 @@
-function distance3(x1, y1, z1, x2, y2, z2)
-    return math.sqrt((x1 - x2)^2 + (y1 - y2)^2 + (z1 - z2)^2)
-end
+--行列演算ライブラリ
+matrix = {
+    --和(A+B)
+    add = function(A, B)
+        local C = {}
+        for i = 1, #A do
+            C[i] = {}
+            for j = 1, #A[1] do
+                C[i][j] = A[i][j] + B[i][j]
+            end
+        end
+        return C
+    end,
 
-data_new = {
-    {x = 100, y = 100, z = 100, d = 1000, id = 1},
-    {x = 230, y = 100, z = 100, d = 1000, id = 2},
-    {x = 90, y = 100, z = 100, d = 1000, id = 3},
-    {x = 230, y = 100, z = 100, d = 1000, id = 4},
-    {x = 210, y = 100, z = 100, d = 1000, id = 5},
-    {x = 120, y = 100, z = 100, d = 1000, id = 6},
-    {x = 200, y = 100, z = 100, d = 1000, id = 7},
-    {x = 110, y = 100, z = 100, d = 1000, id = 8},
+    --差(A-B)
+    sub = function(A, B)
+        local C = {}
+        for i = 1, #A do
+            C[i] = {}
+            for j = 1, #A[1] do
+                C[i][j] = A[i][j] - B[i][j]
+            end
+        end
+        return C
+    end,
+
+    --積(A*B)
+    mul = function(A, B)
+        local C = {}
+        for i = 1, #A do
+            C[i] = {}
+            for j = 1, #B[1] do
+                local sum = 0
+                for k = 1, #A[1] do
+                    sum = sum + A[i][k]*B[k][j]
+                end
+                C[i][j] = sum
+            end
+        end
+        return C
+    end,
+
+    --逆行列（ガウス・ジョルダン法）
+    inv = function(A)
+        local n, I, M = #A, {}, {}
+        for i = 1, n do
+            I[i] = {}
+            M[i] = {}
+            for j = 1, n do
+                M[i][j] = A[i][j]
+                I[i][j] = (i == j) and 1 or 0
+            end
+        end
+
+        for i = 1, n do
+            -- ピボット正規化
+            local pivot = M[i][i]
+            if pivot ~= 0 then
+                for j = 1, n do
+                    M[i][j] = M[i][j] / pivot
+                    I[i][j] = I[i][j] / pivot
+                end
+                -- 他の行から消去
+                for k = 1, n do
+                    if k ~= i then
+                        local factor = M[k][i]
+                        for j = 1, n do
+                            M[k][j] = M[k][j] - factor * M[i][j]
+                            I[k][j] = I[k][j] - factor * I[i][j]
+                        end
+                    end
+                end
+            end
+        end
+        return I
+    end,
+
+    --転置
+    transpose = function(A)
+        local T = {}
+        for i = 1, #A[1] do
+            T[i] = {}
+            for j = 1, #A do
+                T[i][j] = A[j][i]
+            end
+        end
+        return T
+    end,
+
+    --対角行列へ展開(xをn回)
+    diag = function (x, n)
+        local xRow, xColumn, M = #x, #x[1], {}
+
+        -- 大きな行列を 0 で初期化
+        for i = 1, xRow*n do
+            M[i] = {}
+            for j = 1, xColumn*n do
+                M[i][j] = 0
+            end
+        end
+
+        -- 各ブロックを対角に配置
+        for k = 0, n-1 do
+            local rowOffset, colOffset = k*xRow, k*xColumn
+            for i = 1, xRow do
+                for j = 1, xColumn do
+                    M[rowOffset + i][colOffset + j] = x[i][j]
+                end
+            end
+        end
+
+        return M
+    end
 }
 
-
-for i = 1, #data_new do
-    local A, B, same_data, error_range, sum_x, sum_y, sum_z, j
-    A = data_new[i]
-    if A == nil then
-        break
+function printMatrix(M)
+    for i = 1, #M do
+        print(table.concat(M[i], "\t"))  -- 行をタブ区切りで結合
     end
-    error_range = 0.05*A.d
-    same_data = {A}
-    --距離を判定される側の探索
-    j = i + 1
-    while j <= #data_new do
-        B = data_new[j]
-        --規定値以下なら仮テーブルに追加し、元テーブルから削除
-        if distance3(A.x, A.y, A.z, B.x, B.y, B.z) < error_range then
-            table.insert(same_data, B)
-            table.remove(data_new, j)
-        else
-            j = j + 1
-        end
-    end
-    --仮テーブルから平均値を計算して値を更新
-    --ついでにd→tへと定義を変更
-    sum_x, sum_y, sum_z = 0, 0, 0
-    for _, C in pairs(same_data) do
-        sum_x = sum_x + C.x
-        sum_y = sum_y + C.y
-        sum_z = sum_z + C.z
-    end
-    data_new[i] = {
-        x = sum_x/#same_data,
-        y = sum_y/#same_data,
-        z = sum_z/#same_data,
-        t = 0
-    }
 end
+A = {{1}}
 
-for i = 1, #data_new do
-    local A = data_new[i]
-    print(A.x, A.y, A.z, A.t)
-end
+--printMatrix(matrix.diag(A, 9))
+
+A = {
+    {1, 2, 3},
+    {4, 5, 6},
+    {7, 8, 9}
+}
+
+printMatrix(matrix.diag(A, 3))

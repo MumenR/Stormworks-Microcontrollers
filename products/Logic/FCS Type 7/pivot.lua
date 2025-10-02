@@ -59,6 +59,10 @@ pi2 = math.pi*2
 
 STABI_DELAY_LASER = 4
 STABI_DELAY_PIVOT = 7.45
+TRD1_DELAY = -2.5
+ELI3_TICK = 30
+
+P, I, D = 8, 0, 20
 
 --ローカル座標からワールド座標へ変換(physics sensor使用)
 function local2World(Lx, Ly, Lz, Px, Py, Pz, Ex, Ey, Ez)
@@ -159,11 +163,18 @@ end
 
 --視線角速度
 function losRv(vx, vy, vz, Tx, Ty, Tz, Tvx, Tvy, Tvz)
-    local LRvx, LRvy, LRvz
-    LRvx = math.atan(Ty + Tvy - vy, Tz + Tvz - vz) - math.atan(Ty, Tz)
-    LRvy = math.atan(Tz + Tvz - vz, Tx + Tvx - vx) - math.atan(Tz, Tx)
-    LRvz = math.atan(Tx + Tvx - vx, Ty + Tvy - vy) - math.atan(Tx, Ty)
-    return LRvx, LRvy, LRvz
+    local Vrx, Vry, Vrz, T2
+    --相対速度
+    Vrx, Vry, Vrz = Tvx - vx, Tvy - vy, Tvz - vz
+    --分母
+    T2 = Tx^2 + Ty^2 + Tz^2
+    --外積を位置ベクトルの二乗和で割る
+    return (Ty*Vrz - Tz*Vry)/T2, (Tz*Vrx - Tx*Vrz)/T2, (Tx*Vry - Ty*Vrx)/T2
+end
+
+--未来位置予測(return: x, y, z, vx, vy, vz)
+function predictTRD1(x, y, z, vx, vy, vz, ax, ay, az, t)
+    return ax*t^2/2 + vx*t + x, ay*t^2/2 + vy*t + y, az*t^2/2 + vz*t + z, ax*t + vx, ay*t + vy, az*t + vz
 end
 
 yawErrorSum = 0
@@ -185,38 +196,50 @@ function PID(P, I, D, target, current, error_sum_pre, error_pre, min, max)
 end
 
 pitchAngle = 0
+ELI3X, ELI3Y, ELI3Z = 0, 0, 0
+ELI3t = math.huge
 function onTick()
     Px, Py, Pz = INN(1), INN(2), INN(3)
     Ex, Ey, Ez = INN(4), INN(5), INN(6)
     Vx, Vy, Vz = INN(7)/60, INN(8)/60, INN(9)/60
     Rvx, Rvy, Rvz = INN(10)*pi2/60, INN(11)*pi2/60, INN(12)*pi2/60
 
-    ELI3X, ELI3Y, ELI3Z = INN(13), INN(14), INN(15)
     ELI3Exists = INN(16) == 1
+    if ELI3Exists then
+       ELI3X, ELI3Y, ELI3Z = INN(13), INN(14), INN(15)
+       ELI3t = 0
+    end
 
-    ELI2X, ELI2Y, ELI2Z = INN(17), INN(18), INN(19)
-    ELI2Vx, ELI2Vy, ELI2Vz = INN(20), INN(21), INN(22)
-    ELI2Exists = INN(23) == 1
+    TRD1X, TRD1Y, TRD1Z = INN(17), INN(18), INN(19)
+    TRD1Vx, TRD1Vy, TRD1Vz = INN(20), INN(21), INN(22)
+    TRD1Ax, TRD1Ay, TRD1Az = INN(23), INN(24), INN(25)
+    TRD1Exists = INN(26) == 1
 
-    zoomRadCaled = INN(24)
-
-    seatAD, seatWS = INN(25), INN(26)
-
-    yawPosition = sameRotation(INN(27))
-    power = INN(28) == 1
-
-    stabiEnabled = INN(29) == 1
-    autoaimEnabled = INN(30) == 1
+    zoomRadCaled = INN(27)
+    seatAD, seatWS = INN(28), INN(29)
+    yawPosition = sameRotation(INN(30))
+    power = INN(31)%10 == 1
+    stabiEnabled = INN(31)%100 >= 10 
+    autoaimEnabled = INN(31) >= 100
 
     CONTROL_GAIN = PRN("Cam control gain")
-
     GEAR, PIVOT = PRN("Gear ratio (1 : ?)"), PRN("Types of Yaw PIVOT")
-    P, I, D = PRN("P"), PRN("I"), PRN("D")
 
     OFFSET_X, OFFSET_Y, OFFSET_Z = PRN("Body phys. offset X"), PRN("Body phys. offset Y"), PRN("Body phys. offset Z")
     offsetPx, offsetPz, offsetPy = local2World(OFFSET_X, OFFSET_Y, OFFSET_Z, Px, Py, Pz, Ex, Ey, Ez)
 
-    isTrack = autoaimEnabled and ELI2Exists
+    --遅延補正
+    TRD1X, TRD1Y, TRD1Z, TRD1Vx, TRD1Vy, TRD1Vz = predictTRD1(TRD1X, TRD1Y, TRD1Z, TRD1Vx, TRD1Vy, TRD1Vz, TRD1Ax, TRD1Ay, TRD1Az, TRD1_DELAY)
+
+    isTrack = autoaimEnabled and TRD1Exists
+
+    --ELI3モード
+    if ELI3t <= ELI3_TICK then
+        ELI3t = ELI3t + 1
+        isTrack = true
+        TRD1X, TRD1Y, TRD1Z = ELI3X, ELI3Y, ELI3Z
+        TRD1Vx, TRD1Vy, TRD1Vz = 0, 0, 0
+    end
 
     --スタビライザーと追尾モード
     if power and (stabiEnabled or isTrack) then
@@ -230,7 +253,7 @@ function onTick()
         if isTrack then
             manualLx, manualLy, manualLz = 0, 0, 0
             pitchManualDirec, yawManualDirec = 0, 0
-            stabiWx, stabiWy, stabiWz = ELI2X - offsetPx, ELI2Y - offsetPz, ELI2Z - offsetPy
+            stabiWx, stabiWy, stabiWz = TRD1X - offsetPx, TRD1Y - offsetPz, TRD1Z - offsetPy
         else
             --手動変量
             pitchManualDirec = -pi2*CONTROL_GAIN*zoomRadCaled*seatWS/60
@@ -257,20 +280,21 @@ function onTick()
 
         if isTrack then
             --追尾用視線角速度算出
-            local TLx, TLy, TLz = world2Local(ELI2X, ELI2Y, ELI2Z, offsetPx, offsetPy, offsetPz, Ex, Ey, Ez)
-            local TLvx, TLvy, TLvz = world2Local(ELI2Vx, ELI2Vy, ELI2Vz, 0, 0, 0, Ex, Ey, Ez)
-            local TLosX, TLosY, TLosZ = losRv(0, 0, 0, TLx, TLy, TLz, TLvx, TLvy, TLvz)
-            LRvx, LRvy, LRvz = LRvx - TLosX, LRvy - TLosY, LRvz - TLosZ
+            local TLx, TLy, TLz = world2Local(TRD1X, TRD1Y, TRD1Z, offsetPx, offsetPy, offsetPz, Ex, Ey, Ez)
+            local TLvx, TLvy, TLvz = world2Local(TRD1Vx, TRD1Vy, TRD1Vz, 0, 0, 0, Ex, Ey, Ez)
+            local TLosX, TLosY, TLosZ = losRv(Vx, Vz, Vy, TLx, TLy, TLz, TLvx, TLvy, TLvz)
+            LRvx, LRvy, LRvz = LRvx + TLosX, LRvy + TLosY, LRvz + TLosZ
         end
         
-        --レーザースタビ
+        --レーザー・カメラ出力値
         local stabiLaserX, stabiLaserY, stabiLaserZ = stabiFutureAngle(stabiLx, stabiLy, stabiLz, -LRvx, -LRvy, -LRvz, STABI_DELAY_LASER)
+        --オフセット
         _, _, pitchAngle = rect2Polar(stabiLaserX, stabiLaserY, stabiLaserZ, false)
 
-        --ピボットスタビ
+        --ピボット出力値
         local stabiPivotX, stabiPivotY, stabiPivotZ = stabiFutureAngle(stabiLx, stabiLy, stabiLz, -LRvx, -LRvy, -LRvz, STABI_DELAY_PIVOT)
         _, yawAngle, _ = rect2Polar(stabiPivotX, stabiPivotY, stabiPivotZ, false)
-        local yawDiff = GEAR*sameRotation(yawAngle + yawManualDirec - yawPosition)/PIVOT
+        local yawDiff = GEAR*sameRotation(yawAngle - yawPosition)/PIVOT
         yawSpeed, yawErrorSum, yawErrorPre = PID(P, I, D, 0, -yawDiff, yawErrorSum, yawErrorPre, -100, 100)
 
     elseif power then
@@ -309,10 +333,10 @@ function onDraw()
 
     screen.setColor(0, 255, 0)
     if stabiEnabled then
-        screen.drawText(1, h - 6, "STAB")
+        screen.drawText(math.floor(w/2) - 21 , h - 6, "STAB")
     end
 
     if autoaimEnabled then
-        screen.drawText(25, h - 6, "AUTO")
+        screen.drawText(math.floor(w/2), h - 6, "AUTO")
     end
 end
