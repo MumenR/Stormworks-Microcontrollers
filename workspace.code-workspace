@@ -1,6 +1,10 @@
 {
 	"folders": [
 		{
+			"name": "HMD V4",
+			"path": "products/Logic/HMD V4"
+		},
+		{
 			"name": "autopilot V1",
 			"path": "products/Logic/autopilot V1"
 		},

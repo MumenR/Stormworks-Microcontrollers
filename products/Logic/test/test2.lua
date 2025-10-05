@@ -1,21 +1,35 @@
-data_new = {
-    {x = 100, y = 100, z = 100, d = 1000, id = 1},
-    {x = 230, y = 100, z = 100, d = 1000, id = 2},
-    {x = 90, y = 100, z = 100, d = 1000, id = 3},
-    {x = 230, y = 100, z = 100, d = 1000, id = 4},
-    {x = 210, y = 100, z = 100, d = 1000, id = 5},
-    {x = 120, y = 100, z = 100, d = 1000, id = 6},
-    {x = 200, y = 100, z = 100, d = 1000, id = 7},
-    {x = 110, y = 100, z = 100, d = 1000, id = 8},
-}
-
-for _, value in pairs(data_new) do
-    print(value.x, value.y, value.z, value.d, value.id)
+PRECISION = 0.1     --valueの最小保証精度
+NBITS = 24          --valueに割り当てるビット数
+function encode(id, value)
+	value = math.floor(value / PRECISION + 0.5)
+	if value < 0 then
+		value = value + 1 << NBITS
+	end
+	value = value | id << NBITS
+	id = (id >> (24 - NBITS)) + 66
+	if id >= 127 then
+		id = id + 67
+	end
+	local x = ('f'):unpack(('I3B'):pack(value & 16777215, id & 255))
+	return x
 end
 
-print()
-
-for _, value in pairs(data_new) do
-    data_new[_].x = nil
-    print(value.x, value.y, value.z, value.d, value.id)
+function decode(x)
+	local value, id = ('I3B'):unpack(('f'):pack(x))
+	if id >> 7 & 1 ~= 0 then
+		id = id - 67
+	end
+	id = (id - 66) << (24 - NBITS) | (value >> NBITS)
+	value = value & ((1 << NBITS) - 1)
+	if value >> (NBITS - 1) & 1 ~= 0 then
+		value = value - (1 << NBITS)
+	end
+	return id, value * PRECISION
 end
+
+ID = 99
+coord = 305648.165462
+
+pack = encode(ID, coord)
+
+print(decode(pack))

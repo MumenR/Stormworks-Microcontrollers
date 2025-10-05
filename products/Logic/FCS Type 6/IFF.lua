@@ -1,3 +1,7 @@
+-- Author: MumenR
+-- GitHub: https://github.com/MumenR/Stormworks-Microcontrollers
+-- Workshop: https://steamcommunity.com/profiles/76561199060549727/myworkshopfiles/
+--
 --- Developed using LifeBoatAPI - Stormworks Lua plugin for VSCode - https://code.visualstudio.com/download (search "Stormworks Lua with LifeboatAPI" extension)
 --- If you have any issues, please report them here: https://github.com/nameouschangey/STORMWORKS_VSCodeExtension/issues - by Nameous Changey
 
@@ -45,94 +49,109 @@ end
 -- try require("Folder.Filename") to include code from another file in this, so you can store code in libraries
 -- the "LifeBoatAPI" is included by default in /_build/libs/ - you can use require("LifeBoatAPI") to get this, and use all the LifeBoatAPI.<functions>!
 
+
 INN = input.getNumber
 INB = input.getBool
 OUN = output.setNumber
 OUB = output.setBool
-tgt_raw = {}
-tgt_filted = {}
+PRN = property.getNumber
+pi2 = math.pi*2
 
-max_t = 1
-t = 0
+LOST_TICK = 600
 
---最小値と最大値でフィルタリング
-function maxmin(table)
-    --最小値と最大値を探索
-    local max, min = table[1], table[1]
-    for i = 2, #table do
-        if table[i] > max then
-            max = table[i]
-        elseif table[i] < min then
-            min = table[i]
-        end
-    end
-    return (max + min)/2
+PRECISION = 0.1     --valueの最小保証精度
+NBITS = 24          --valueに割り当てるビット数
+function encode(id, value)
+	value = math.floor(value / PRECISION + 0.5)
+	if value < 0 then
+		value = value + 1 << NBITS
+	end
+	value = value | id << NBITS
+	id = (id >> (24 - NBITS)) + 66
+	if id >= 127 then
+		id = id + 67
+	end
+	local x = ('f'):unpack(('I3B'):pack(value & 16777215, id & 255))
+	return x
 end
+
+function decode(x)
+	local value, id = ('I3B'):unpack(('f'):pack(x))
+	if id >> 7 & 1 ~= 0 then
+		id = id - 67
+	end
+	id = (id - 66) << (24 - NBITS) | (value >> NBITS)
+	value = value & ((1 << NBITS) - 1)
+	if value >> (NBITS - 1) & 1 ~= 0 then
+		value = value - (1 << NBITS)
+	end
+	return id, value * PRECISION
+end
+
+data = {}
 
 function onTick()
+
+    --時間経過と削除
+    for ID, DATA in pairs(data) do
+        data[ID].elaspedTick = data[ID].elaspedTick + 1
+        data[ID].outputTick = data[ID].outputTick + 1
+
+        if DATA.elaspedTick > LOST_TICK then
+            data[ID] = nil
+        end
+    end
+	
     --データ取り込み
-    --tgt_raw[時間][チャンネル][極座標]
-    polar_table = {}
-    for i = 1, 8 do
-        if INB(i) then
-            table.insert(polar_table, {INN(i*4 - 3), INN(i*4 - 2), INN(i*4 - 1), INN(i*4)})
-            if INN(i*4) + 1 > max_t then
-                max_t = INN(i*4) + 1
-            end
-        end
-    end
-    
-    --データ追加と削除
-    if #polar_table > 0 then
-        if polar_table[1][4] == 0 then
-            tgt_raw = {}
-        end
-        table.insert(tgt_raw, polar_table)
-    else
-        tgt_raw = {}
-    end
-
-    --フィルタリング
-    --tgt_filted[チャンネル][極座標]
-    if #tgt_raw == max_t then
-        tgt_filted = {}
-        --チャンネル
-        for i = 1, #tgt_raw[1] do
-            --座標要素
-            local tmp2 = {}
-            for j = 1, 3 do
-                --時間
-                local tmp1 = {}
-                for k = 1, #tgt_raw do
-                    table.insert(tmp1, tgt_raw[k][i][j])
+    for i = 0, 5 do
+        local x, y, z, ID
+        x = INN(4*i + 1)
+        y = INN(4*i + 2)
+        z = INN(4*i + 3)
+        ID = INN(4*i + 4)%1000
+        if ID ~= 0 then
+            --前回値と異なる値なら更新がされたと判定する
+            local elaspedTick, outputTick = 0, math.huge
+            if data[ID] ~= nil then
+                --同じなら更新してない判定
+                if data[ID].x == x and data[ID].y == y and data[ID].z == z then
+                    outputTick = data[ID].outputTick
+                    elaspedTick = data[ID].elaspedTick
                 end
-                table.insert(tmp2, maxmin(tmp1))
             end
-            table.insert(tgt_filted, tmp2)
+            data[ID] = {
+                x = x,
+                y = y,
+                z = z,
+                elaspedTick = elaspedTick,
+                outputTick = outputTick
+            }
         end
-        t = 1
     end
 
-    --出力なし用の値
-    for i = 1, 24 do
+
+    --reset
+    for i = 1, 32 do
         OUN(i, 0)
-        OUB(i, false)
     end
 
-    --出力      
-    if t <= max_t then
-
-        for i = 1, #tgt_filted do
-            OUB(i, true)
-            for j = 1, 3 do
-                OUN(3*(i - 1) + j, tgt_filted[i][j])
-            end
+    --最も最後に出力した値を探索
+    local maxT, maxID = 0, 0
+    for ID, DATA in pairs(data) do
+        if DATA.outputTick > maxT then
+            maxT = DATA.outputTick
+            maxID = ID
         end
+    end
 
-        --デバッグ用
-        OUN(32, t)
-        t = t + 1
-    else
-        tgt_filted = {}
+    --出力
+    if maxID ~= 0 then
+        --3チャンネルに圧縮(千、百: x, 十: y, 一: z)
+        local xID, yID, zID = math.floor((maxID/100)%100), math.floor((maxID/10)%10), math.floor(maxID%10)
+        OUN(1, encode(xID, data[maxID].x))
+        OUN(2, encode(yID, data[maxID].y))
+        OUN(3, encode(zID, data[maxID].z))
+        data[maxID].outputTick = 0
     end
 end
+
