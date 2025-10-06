@@ -1,10 +1,6 @@
 {
 	"folders": [
 		{
-			"name": "HMD V4",
-			"path": "products/Logic/HMD V4"
-		},
-		{
 			"name": "autopilot V1",
 			"path": "products/Logic/autopilot V1"
 		},
@@ -115,6 +111,10 @@
 		{
 			"name": "HMD V3",
 			"path": "products/Logic/HMD V3"
+		},
+		{
+			"name": "HMD V4",
+			"path": "products/Logic/HMD V4"
 		},
 		{
 			"name": "Hydrofoil Controller V1",

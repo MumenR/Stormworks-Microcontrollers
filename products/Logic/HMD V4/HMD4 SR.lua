@@ -20,21 +20,10 @@ do
     ---@param simulator Simulator Use simulator:<function>() to set inputs etc.
     ---@param ticks     number Number of ticks since simulator started
     function onLBSimulatorTick(simulator, ticks)
-
-        -- touchscreen defaults
-        local screenConnection = simulator:getTouchScreen(1)
-        simulator:setInputBool(1, screenConnection.isTouched)
-        simulator:setInputNumber(1, screenConnection.width)
-        simulator:setInputNumber(2, screenConnection.height)
-        simulator:setInputNumber(3, screenConnection.touchX)
-        simulator:setInputNumber(4, screenConnection.touchY)
-
-        -- NEW! button/slider options from the UI
-        simulator:setInputBool(31, simulator:getIsClicked(1))       -- if button 1 is clicked, provide an ON pulse for input.getBool(31)
-        simulator:setInputNumber(31, simulator:getSlider(1))        -- set input 31 to the value of slider 1
-
-        simulator:setInputBool(32, simulator:getIsToggled(2))       -- make button 2 a toggle, for input.getBool(32)
-        simulator:setInputNumber(32, simulator:getSlider(2) * 50)   -- set input 32 to the value from slider 2 * 50
+        simulator:setInputNumber(1, 0)
+        simulator:setInputNumber(2, 100)
+        simulator:setInputNumber(3, 0)
+        simulator:setInputNumber(4, 0000*10^4 + 0001)
     end;
 end
 ---@endsection
@@ -60,7 +49,6 @@ fov_h = (58/360)*pi2
 function distance3(x1, y1, z1, x2, y2, z2)
     return math.sqrt((x1 - x2)^2 + (y1 - y2)^2 + (z1 - z2)^2)
 end
-
 
 --ワールド座標からローカル座標へ(physics sensor使用)
 function World2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
@@ -115,6 +103,155 @@ function WorldRect2Display(Wx, Wy, Wz, Ex, Ey, Ez)
     return Dx, Dy, drawable
 end
 
+--描画可能判定
+function CanDraw(x, y)
+    return x >= 0 and x <= w and y >= 0 and y <= h
+end
+
+--SRD3マーク描画用関数
+function drawSRD3(pixX, pixY, shapeNo, colorNo, addStaticNo, addDynamicNo)
+    local drawDottedLine, drawDottedRect, drawDottedTriangle, drawDottedCircle, drawTrueCircle, drawShape
+
+    --点線
+    function drawDottedLine(x1, y1, x2, y2)
+        local dx, dy, len, step, sx, sy, ex, ey
+        dx, dy = x2 - x1, y2 - y1
+        len = math.sqrt(dx^2 + dy^2)
+        dx, dy = dx / len, dy / len
+        step = 1
+        for i = 0, len, step*2 do
+            sx, sy = x1 + dx*i, y1 + dy*i
+            ex, ey = x1 + dx*(i + step), y1 + dy*(i + step)
+            if i + step < len then
+                screen.drawLine(sx, sy, ex, ey)
+            end
+        end
+    end
+    --点矩形
+    function drawDottedRect(x, y, w, h)
+        drawDottedLine(x, y, x, y + h)
+        drawDottedLine(x, y, x + w, y)
+        drawDottedLine(x + w, y + h, x, y + h)
+        drawDottedLine(x + w, y + h, x + w, y)
+    end
+    --点三角
+    function drawDottedTriangle(x1, y1, x2, y2, x3, y3)
+        drawDottedLine(x1, y1, x2, y2)
+        drawDottedLine(x2, y2, x3, y3)
+        drawDottedLine(x3, y3, x1, y1)
+    end
+    --点円
+    function drawDottedCircle(x, y, r)
+        local stepRad = math.atan(1, r)
+        for i = 0, pi2, stepRad*2 do
+            local x1, y1, x2, y2
+            x1 = x + r*math.cos(i)
+            y1 = y + r*math.sin(i)
+            x2 = x + r*math.cos(i + stepRad)
+            y2 = y + r*math.sin(i + stepRad)
+            screen.drawLine(x1, y1, x2, y2)
+        end
+    end
+
+    function drawTrueCircle(x, y, r)
+        local step = 10/360*pi2
+        for i = 0, pi2 - step, step do
+            local x1, y1, x2, y2
+            x1 = x + r*math.cos(i)
+            y1 = y + r*math.sin(i)
+            x2 = x + r*math.cos(i + step)
+            y2 = y + r*math.sin(i + step)
+            screen.drawLine(x1, y1, x2, y2)
+        end
+    end
+
+    colorNoData = {
+        {0, 255, 0},
+        {32, 32, 255},
+        {255, 0, 0},
+        {255, 0, 0}
+    }
+
+    --色設定
+    if colorNoData[colorNo + 1] ~= nil then
+        screen.setColor(colorNoData[colorNo + 1][1], colorNoData[colorNo + 1][2], colorNoData[colorNo + 1][3])
+    else
+        screen.setColor(0, 255, 0)
+    end
+
+    --形
+    drawShape = function(x, y, r, dottedEnable)
+        drawLine = dottedEnable and drawDottedLine or screen.drawLine
+        drawRect = dottedEnable and drawDottedRect or screen.drawRect
+        drawTriangle = dottedEnable and drawDottedTriangle or screen.drawTriangle
+        drawCircle = dottedEnable and drawDottedCircle or screen.drawCircle
+
+        if shapeNo == 0 then        --四角
+            drawRect(x - r, y - r, r*2, r*2)
+        elseif shapeNo <= 2 then    --菱形
+            drawLine(x - r, y, x, y + r)
+            drawLine(x, y + r, x + r, y)
+            drawLine(x + r, y, x, y - r)
+            drawLine(x, y - r, x - r, y)
+            if shapeNo == 2 then    --四角+菱形
+                r = (r == 3) and (r + 1) or r
+                drawRect(x - r, y - r, r*2, r*2)
+            end
+        elseif shapeNo == 3 then    --三角
+            drawTriangle(pixX, pixY - r, pixX + r/2*3^0.5, pixY + r/2, pixX - r/2*3^0.5, pixY + r/2)
+        elseif shapeNo == 4 then    --円
+            drawCircle(pixX, pixY, r)
+        elseif shapeNo == 5 then    --四角の端だけ
+            drawLine(x - r, y - r, x - r/2, y - r)
+            drawLine(x - r, y - r, x - r, y - r/2)
+            drawLine(x - r, y + r, x - r/2, y + r)
+            drawLine(x - r, y + r, x - r, y + r/2)
+            drawLine(x + r, y - r, x + r/2, y - r)
+            drawLine(x + r, y - r, x + r, y - r/2)
+            drawLine(x + r, y + r, x + r/2, y + r)
+            drawLine(x + r, y + r, x + r, y + r/2)
+        elseif shapeNo == 6 then    --菱形の隅だけ
+            drawLine(x - r, y, x - r*3/4, y + r/4)
+            drawLine(x - r/4, y + r*3/4, x, y + r)
+            drawLine(x, y + r, x + r/4, y + r*3/4)
+            drawLine(x + r*3/4, y + r/4, x + r, y)
+            drawLine(x + r, y, x + r*3/4, y - r/4)
+            drawLine(x + r/4, y - r*3/4, x, y - r)
+            drawLine(x, y - r, x - r/4, y - r*3/4)
+            drawLine(x - r*3/4, y - r/4, x - r, y)
+        end
+    end
+    drawShape(pixX, pixY, 4, addStaticNo == 2)  --点線は2番
+
+    --静的追加機能
+    if addStaticNo == 1 then        --太
+        drawShape(pixX, pixY, 3, addStaticNo == 2)
+    elseif addStaticNo == 3 then    --中央点
+        screen.drawCircle(pixX, pixY, 1)
+    elseif addStaticNo == 4 then    --十字
+        screen.drawLine(pixX + 4, pixY, pixX - 4, pixY)
+        screen.drawLine(pixX, pixY + 4, pixX, pixY - 4)
+    elseif addStaticNo == 5 then    --クロス十字
+        screen.drawLine(pixX - 4, pixY - 4, pixX + 4, pixY + 4)
+        screen.drawLine(pixX + 4, pixY - 4, pixX - 4, pixY + 4)
+    elseif addStaticNo == 6 then    --中央空き十字
+        screen.drawLine(pixX + 4, pixY, pixX + 1, pixY)
+        screen.drawLine(pixX - 4, pixY, pixX - 1, pixY)
+        screen.drawLine(pixX, pixY + 4, pixX, pixY + 1)
+        screen.drawLine(pixX, pixY - 4, pixX, pixY - 1)
+    elseif addStaticNo == 7 then    --中央空きクロス十字
+        screen.drawLine(pixX - 4, pixY - 4, pixX - 1, pixY - 1)
+        screen.drawLine(pixX + 4, pixY + 4, pixX + 1, pixY + 1)
+        screen.drawLine(pixX + 4, pixY - 4, pixX + 1, pixY - 1)
+        screen.drawLine(pixX - 4, pixY + 4, pixX - 1, pixY + 1)
+    end
+
+    --動的追加機能
+    if addDynamicNo == 1 then
+        
+    end
+end
+
 function onTick()
     Px = INN(25)
     Py = INN(26)
@@ -137,19 +274,20 @@ function onTick()
     end
 
     --データ取り込み
-    --data[ID]{x, y, z, t, select, lock}
+    --data[ID]{x, y, z, t, shapeNo, colorNo, addStaticNo, addDynamicNo}
     for i = 0, 5 do
-        local raw_ID = INN(i*4 + 4)
-        ID = raw_ID%10000
+        local rawID = INN(i*4 + 4)
+        ID = rawID%10000
         if ID ~= 0 then
             data[ID] = {
                 x = INN(i*4 + 1),
                 y = INN(i*4 + 2),
                 z = INN(i*4 + 3),
                 t = 0,
-                select = raw_ID%(10^5) > 10^4,
-                lock = raw_ID%(10^6) > 10^5,
-                MXT_out = raw_ID > 10^6
+                shapeNo = math.floor(rawID/(10^4))%10,
+                colorNo = math.floor(rawID/(10^5))%10,
+                addStaticNo = math.floor(rawID/(10^6))%10,
+                addDynamicNo = math.floor(rawID/(10^7))%10
             }
         end
     end
@@ -170,38 +308,12 @@ function onDraw()
     h = screen.getHeight()
 
     --レーダー反応描画
-    screen.setColor(0, 255, 0)
     for ID, tgt in pairs(data) do
         x1, y1, drawable1 = WorldRect2Display(tgt.x, tgt.y, tgt.z, Ex, Ey, Ez)
         x1 = math.floor(x1)
         y1 = math.floor(y1)
         if drawable1 then
-
-            --四角
-            if tgt.lock or not tgt.MXT_out then
-                screen.drawRect(x1 - 4, y1 - 4, 8, 8)
-            end
-
-            --菱形
-            if tgt.lock or tgt.MXT_out then
-                screen.drawLine(x1 - 4, y1, x1, y1 + 4)
-                screen.drawLine(x1, y1 + 4, x1 + 4, y1)
-                screen.drawLine(x1 + 4, y1, x1, y1 - 4)
-                screen.drawLine(x1, y1 - 4, x1 - 4, y1)
-            end
-
-            --小四角
-            if not tgt.MXT_out and not tgt.lock and tgt.select then
-                screen.drawRect(x1 - 3, y1 - 3, 6, 6)
-            end
-
-            --小菱形
-            if (tgt.MXT_out or tgt.lock) and tgt.select then
-                screen.drawLine(x1 - 3, y1, x1, y1 + 3)
-                screen.drawLine(x1, y1 + 3, x1 + 3, y1)
-                screen.drawLine(x1 + 3, y1, x1, y1 - 3)
-                screen.drawLine(x1, y1 - 3, x1 - 3, y1)
-            end
+            drawSRD3(x1, y1, tgt.shapeNo, tgt.colorNo, tgt.addStaticNo, tgt.addDynamicNo)
 
             --ID
             if show_radar_id then
