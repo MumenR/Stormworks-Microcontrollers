@@ -222,6 +222,8 @@ function onTick()
     ]]
     --データベースの時間経過とデータ削除
     for ID, DATA in pairs(target_data) do
+        DATA.t_out = DATA.t_out + 1
+        
         --時間経過
         if DATA.IFFTick > 0 then
             DATA.IFFTick = DATA.IFFTick + 1
@@ -239,7 +241,6 @@ function onTick()
                 POS.t = POS.t - 1
             end
             DATA.t_last = -DATA.position[#DATA.position].t
-            DATA.t_out = DATA.t_out + 1
 
             --最大サンプル保持時間算出
             local distance = distance3(Px, Pz, Py, DATA.position[#DATA.position].x, DATA.position[#DATA.position].y, DATA.position[#DATA.position].z)
@@ -308,12 +309,10 @@ function onTick()
         local IFFExist = true
         --IFF情報登録
         --IDが既存と一致する場合
-        if target_data[IFFID] ~= nil then
-            if target_data[IFFID].IFFTick > 0 then
-                target_data[IFFID].IFF = {x = x, y = y, z = z}
-                target_data[IFFID].IFFTick = 1
-                IFFExist = false
-            end
+        if target_data[IFFID] and target_data[IFFID].IFFTick > 0 then
+            target_data[IFFID].IFF = {x = x, y = y, z = z}
+            target_data[IFFID].IFFTick = 1
+            IFFExist = false
         end
 
         --既存とIDが一致しない場合、同定を行う
@@ -571,4 +570,5 @@ function onTick()
 
     --デバッグ
     OUN(32, #lock_on_list)
+    OUN(31, #target_data)
 end
