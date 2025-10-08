@@ -64,7 +64,7 @@ NBITS = 24          --valueに割り当てるビット数
 function encode(id, value)
 	value = math.floor(value / PRECISION + 0.5)
 	if value < 0 then
-		value = value + 1 << NBITS
+		value = (value + (1 << NBITS)) & ((1 << NBITS) - 1)
 	end
 	value = value | id << NBITS
 	id = (id >> (24 - NBITS)) + 66
@@ -110,20 +110,15 @@ function onTick()
         z = INN(4*i + 3)
         ID = INN(4*i + 4)%1000
         if ID ~= 0 then
-            --前回値と異なる値なら更新がされたと判定する
-            local elaspedTick, outputTick = 0, math.huge
+            local outputTick = math.huge
             if data[ID] ~= nil then
-                --同じなら更新してない判定
-                if data[ID].x == x and data[ID].y == y and data[ID].z == z then
-                    outputTick = data[ID].outputTick
-                    elaspedTick = data[ID].elaspedTick
-                end
+                outputTick = data[ID].outputTick
             end
             data[ID] = {
                 x = x,
                 y = y,
                 z = z,
-                elaspedTick = elaspedTick,
+                elaspedTick = 0,
                 outputTick = outputTick
             }
         end
@@ -152,6 +147,11 @@ function onTick()
         OUN(2, encode(yID, data[maxID].y))
         OUN(3, encode(zID, data[maxID].z))
         data[maxID].outputTick = 0
+
+        OUN(4, data[maxID].x)
+        OUN(5, data[maxID].y)
+        OUN(6, data[maxID].z)
+        OUN(7, maxID)
     end
 end
 

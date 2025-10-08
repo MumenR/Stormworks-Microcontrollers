@@ -74,7 +74,7 @@ NBITS = 24          --valueに割り当てるビット数
 function encode(id, value)
 	value = math.floor(value / PRECISION + 0.5)
 	if value < 0 then
-		value = value + 1 << NBITS
+		value = (value + (1 << NBITS)) & ((1 << NBITS) - 1)
 	end
 	value = value | id << NBITS
 	id = (id >> (24 - NBITS)) + 66
@@ -320,12 +320,10 @@ function onTick()
         local IFFExist = true
         --IFF情報登録
         --IDが既存と一致する場合
-        if target_data[IFFID] ~= nil then
-            if target_data[IFFID].IFFTick > 0 then
-                target_data[IFFID].IFF = {x = x, y = y, z = z}
-                target_data[IFFID].IFFTick = 1
-                IFFExist = false
-            end
+        if target_data[IFFID] and target_data[IFFID].IFFTick > 0 then
+            target_data[IFFID].IFF = {x = x, y = y, z = z}
+            target_data[IFFID].IFFTick = 1
+            IFFExist = false
         end
 
         --既存とIDが一致しない場合、同定を行う
@@ -629,5 +627,8 @@ function onTick()
     end
 
     --デバッグ
-    OUN(32, #target_data)
+    OUN(29, x)
+    OUN(30, y)
+    OUN(31, z)
+    OUN(32, IFFID)
 end

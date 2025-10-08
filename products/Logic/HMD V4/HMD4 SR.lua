@@ -167,7 +167,7 @@ function drawSRD3(pixX, pixY, shapeNo, colorNo, addStaticNo, addDynamicNo)
 
     colorNoData = {
         {0, 255, 0},
-        {32, 32, 255},
+        {16, 16, 255},
         {255, 0, 0},
         {255, 0, 0}
     }

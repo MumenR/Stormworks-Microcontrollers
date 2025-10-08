@@ -3,7 +3,7 @@ NBITS = 24          --valueに割り当てるビット数
 function encode(id, value)
 	value = math.floor(value / PRECISION + 0.5)
 	if value < 0 then
-		value = value + 1 << NBITS
+		value = (value + (1 << NBITS)) & ((1 << NBITS) - 1)
 	end
 	value = value | id << NBITS
 	id = (id >> (24 - NBITS)) + 66
