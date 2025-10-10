@@ -54,6 +54,7 @@ INB = input.getBool
 OUN = output.setNumber
 OUB = output.setBool
 PRN = property.getNumber
+PRB = property.getBool
 
 position_delay_buffer = {}
 target_data = {}
@@ -175,7 +176,7 @@ function onTick()
     TARGET_DELAY = PRN("Delay [tick]")                                  --ノードなどによる遅延の補正に用いる時間
     MAX_TARGET_OUTPUT_TICK = PRN("Max target output time [sec]")*60     --ロックオンしたターゲットの最大出力時間
     DETECTION_INTERVAL = PRN("Detection interval [tick]")               --探知間隔
-    FCS_MODE_ENABLE = PRN("Mode")
+    FCS_MODE_ENABLE = PRB("Mode")
 
     if FCS_MODE_ENABLE then
         select_ID = INN(31)
@@ -308,19 +309,21 @@ function onTick()
     if IFFID ~= 0 then
         local IFFExist = true
         --IFF情報登録
+        --[[
         --IDが既存と一致する場合
         if target_data[IFFID] and target_data[IFFID].IFFTick > 0 then
             target_data[IFFID].IFF = {x = x, y = y, z = z}
             target_data[IFFID].IFFTick = 1
             IFFExist = false
         end
+        ]]
 
         --既存とIDが一致しない場合、同定を行う
         if IFFExist then
             --最小距離の目標を探索
             local minDist, minID = math.huge, 0
             for ID, DATA in ipairs(target_data) do
-                if DATA.predict ~= nil and DATA.IFFTick == 0 then
+                if DATA.predict ~= nil then
                     local x1, y1, z1, dist
                     x1 = DATA.predict.x.a + DATA.predict.x.b
                     y1 = DATA.predict.y.a + DATA.predict.y.b
@@ -335,13 +338,14 @@ function onTick()
 
             if minID ~= 0 then
                 --許容誤差として最大移動ユークリッド距離を設定
-                local error = MAX_TARGET_ACCEL*(DETECTION_INTERVAL^2)/2 + MAX_TARGET_SPEED*DETECTION_INTERVAL + 0.02*distance3(0, 0, 0, x, y, z)
+                local error = MAX_TARGET_ACCEL*(DETECTION_INTERVAL^2)/2 + MAX_TARGET_SPEED*DETECTION_INTERVAL + 0.05*distance3(0, 0, 0, x, y, z)
 
                 --データ追加
                 if minDist < error then
                     IFFExist = false
                     if target_data[IFFID] ~= nil then        --使いたいIDが既に占有されている場合
                         target_data[IFFID], target_data[minID] = target_data[minID], target_data[IFFID]
+                        target_data[IFFID].ID, target_data[minID].ID = target_data[minID].ID, target_data[IFFID].ID
                     else                                     --使いたいIDが空いている場合
                         target_data[IFFID], target_data[minID] = target_data[minID], nil
                     end
@@ -355,7 +359,9 @@ function onTick()
         if IFFExist then
             IFFExist = false
             if target_data[IFFID] ~= nil then        --使いたいIDが既に占有されている場合移動させる
-                target_data[nextID()], target_data[IFFID] = target_data[IFFID], nil
+                local newID = nextID()
+                target_data[IFFID].ID = newID
+                target_data[newID], target_data[IFFID] = target_data[IFFID], nil
             end
             target_data[IFFID] = {
                 position = {},
