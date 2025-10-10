@@ -23,7 +23,17 @@ do
         simulator:setInputNumber(1, 0)
         simulator:setInputNumber(2, 100)
         simulator:setInputNumber(3, 0)
-        simulator:setInputNumber(4, 0000*10^4 + 0001)
+        simulator:setInputNumber(4, 3000*10^4 + 0001)
+
+        simulator:setInputNumber(5, 0)
+        simulator:setInputNumber(6, 100)
+        simulator:setInputNumber(7, 20)
+        simulator:setInputNumber(8, 3000*10^4 + 0002)
+
+        simulator:setInputNumber(9, 0)
+        simulator:setInputNumber(10, 100)
+        simulator:setInputNumber(11, 40)
+        simulator:setInputNumber(12, 3000*10^4 + 0003)
     end;
 end
 ---@endsection
@@ -109,7 +119,7 @@ function CanDraw(x, y)
 end
 
 --SRD3マーク描画用関数
-function drawSRD3(pixX, pixY, shapeNo, colorNo, addStaticNo, addDynamicNo)
+function drawSRD3(pixX, pixY, shapeNo, colorNo, addStaticNo, addDynamicNo, t)
     local drawDottedLine, drawDottedRect, drawDottedTriangle, drawDottedCircle, drawTrueCircle, drawShape
 
     --点線
@@ -165,22 +175,8 @@ function drawSRD3(pixX, pixY, shapeNo, colorNo, addStaticNo, addDynamicNo)
         end
     end
 
-    colorNoData = {
-        {0, 255, 0},
-        {16, 16, 255},
-        {255, 0, 0},
-        {255, 0, 0}
-    }
-
-    --色設定
-    if colorNoData[colorNo + 1] ~= nil then
-        screen.setColor(colorNoData[colorNo + 1][1], colorNoData[colorNo + 1][2], colorNoData[colorNo + 1][3])
-    else
-        screen.setColor(0, 255, 0)
-    end
-
-    --形
-    drawShape = function(x, y, r, dottedEnable)
+    
+    drawShape = function(x, y, r, dottedEnable)   --形
         drawLine = dottedEnable and drawDottedLine or screen.drawLine
         drawRect = dottedEnable and drawDottedRect or screen.drawRect
         drawTriangle = dottedEnable and drawDottedTriangle or screen.drawTriangle
@@ -221,34 +217,63 @@ function drawSRD3(pixX, pixY, shapeNo, colorNo, addStaticNo, addDynamicNo)
             drawLine(x - r*3/4, y - r/4, x - r, y)
         end
     end
-    drawShape(pixX, pixY, 4, addStaticNo == 2)  --点線は2番
 
     --静的追加機能
-    if addStaticNo == 1 then        --太
-        drawShape(pixX, pixY, 3, addStaticNo == 2)
-    elseif addStaticNo == 3 then    --中央点
-        screen.drawCircle(pixX, pixY, 1)
-    elseif addStaticNo == 4 then    --十字
-        screen.drawLine(pixX + 4, pixY, pixX - 4, pixY)
-        screen.drawLine(pixX, pixY + 4, pixX, pixY - 4)
-    elseif addStaticNo == 5 then    --クロス十字
-        screen.drawLine(pixX - 4, pixY - 4, pixX + 4, pixY + 4)
-        screen.drawLine(pixX + 4, pixY - 4, pixX - 4, pixY + 4)
-    elseif addStaticNo == 6 then    --中央空き十字
-        screen.drawLine(pixX + 4, pixY, pixX + 1, pixY)
-        screen.drawLine(pixX - 4, pixY, pixX - 1, pixY)
-        screen.drawLine(pixX, pixY + 4, pixX, pixY + 1)
-        screen.drawLine(pixX, pixY - 4, pixX, pixY - 1)
-    elseif addStaticNo == 7 then    --中央空きクロス十字
-        screen.drawLine(pixX - 4, pixY - 4, pixX - 1, pixY - 1)
-        screen.drawLine(pixX + 4, pixY + 4, pixX + 1, pixY + 1)
-        screen.drawLine(pixX + 4, pixY - 4, pixX + 1, pixY - 1)
-        screen.drawLine(pixX - 4, pixY + 4, pixX - 1, pixY + 1)
+    drawAddStatic = function ()         --静的追加機能
+        if addStaticNo == 1 then        --太
+            drawShape(pixX, pixY, 3, addStaticNo == 2)
+        elseif addStaticNo == 3 then    --中央点
+            screen.drawCircle(pixX, pixY, 1)
+        elseif addStaticNo == 4 then    --十字
+            screen.drawLine(pixX + 4, pixY, pixX - 4, pixY)
+            screen.drawLine(pixX, pixY + 4, pixX, pixY - 4)
+        elseif addStaticNo == 5 then    --クロス十字
+            screen.drawLine(pixX - 4, pixY - 4, pixX + 4, pixY + 4)
+            screen.drawLine(pixX + 4, pixY - 4, pixX - 4, pixY + 4)
+        elseif addStaticNo == 6 then    --中央空き十字
+            screen.drawLine(pixX + 4, pixY, pixX + 1, pixY)
+            screen.drawLine(pixX - 4, pixY, pixX - 1, pixY)
+            screen.drawLine(pixX, pixY + 4, pixX, pixY + 1)
+            screen.drawLine(pixX, pixY - 4, pixX, pixY - 1)
+        elseif addStaticNo == 7 then    --中央空きクロス十字
+            screen.drawLine(pixX - 4, pixY - 4, pixX - 1, pixY - 1)
+            screen.drawLine(pixX + 4, pixY + 4, pixX + 1, pixY + 1)
+            screen.drawLine(pixX + 4, pixY - 4, pixX + 1, pixY - 1)
+            screen.drawLine(pixX - 4, pixY + 4, pixX - 1, pixY + 1)
+        end
+    end
+
+    --色設定
+    colorNoData = {
+        {0, 255, 0},
+        {16, 16, 255},
+        {255, 0, 0},
+        {255, 0, 0}
+    }
+    if colorNoData[colorNo + 1] then
+        screen.setColor(colorNoData[colorNo + 1][1], colorNoData[colorNo + 1][2], colorNoData[colorNo + 1][3])
+    else
+        screen.setColor(0, 255, 0)
     end
 
     --動的追加機能
-    if addDynamicNo == 1 then
-        
+    if addDynamicNo == 1 then       --点滅(高速)
+        if t%12 >= 6 then
+            drawShape(pixX, pixY, 4, addStaticNo == 2)
+            drawAddStatic()
+        end
+    elseif addDynamicNo == 2 then   --点滅(低速)
+        if t%30 >= 15 then
+            drawShape(pixX, pixY, 4, addStaticNo == 2)
+            drawAddStatic()
+        end
+    elseif addDynamicNo == 3 then   --ゲーミング
+        screen.setColor(127*math.sin(t/30) + 128, 127*math.cos(t/30) + 128, 127*math.sin(t/15) + 128)
+        drawShape(pixX, pixY, 4, addStaticNo == 2)
+        drawAddStatic()
+    else
+        drawShape(pixX, pixY, 4, addStaticNo == 2)
+        drawAddStatic()
     end
 end
 
@@ -271,10 +296,14 @@ function onTick()
     --時間経過
     for ID, tgt in pairs(data) do
         tgt.t = tgt.t + 1
+        tgt.drawTick = tgt.drawTick + 1
+        if tgt.drawTick > 60^3*10 then
+            tgt.drawTick = 0
+        end
     end
 
     --データ取り込み
-    --data[ID]{x, y, z, t, shapeNo, colorNo, addStaticNo, addDynamicNo}
+    --data[ID]{x, y, z, t, shapeNo, colorNo, addStaticNo, addDynamicNo, drawTick}
     for i = 0, 5 do
         local rawID = INN(i*4 + 4)
         ID = rawID%10000
@@ -287,7 +316,8 @@ function onTick()
                 shapeNo = math.floor(rawID/(10^4))%10,
                 colorNo = math.floor(rawID/(10^5))%10,
                 addStaticNo = math.floor(rawID/(10^6))%10,
-                addDynamicNo = math.floor(rawID/(10^7))%10
+                addDynamicNo = math.floor(rawID/(10^7))%10,
+                drawTick = (data[ID] and data[ID].drawTick) or 0
             }
         end
     end
@@ -313,7 +343,7 @@ function onDraw()
         x1 = math.floor(x1)
         y1 = math.floor(y1)
         if drawable1 then
-            drawSRD3(x1, y1, tgt.shapeNo, tgt.colorNo, tgt.addStaticNo, tgt.addDynamicNo)
+            drawSRD3(x1, y1, tgt.shapeNo, tgt.colorNo, tgt.addStaticNo, tgt.addDynamicNo, tgt.drawTick)
 
             --ID
             if show_radar_id then

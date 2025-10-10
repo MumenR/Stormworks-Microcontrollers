@@ -63,9 +63,11 @@ is_locked_on = false
 press_tick = 0
 lock_on_ID = 0
 next_MTX_ID = 1
+IFFData = {}
 
 SHORT_PRESS_MAX_TICKS = 15
 IFF_LOST_TICK = 600
+SAMA_VEHICLE_RADIUS = 50
 
 MAX_TARGET_SPEED = 300/60
 MAX_TARGET_ACCEL = 300/(60*60)
@@ -139,7 +141,8 @@ end
 --ft = {{t = tick, x = X}, ...}
 function least_squares_method(ft)
     local a, b, sum_t, sum_x, sum_tx, sum_t2 = 0, 0, 0, 0, 0, 0
-    if #ft < 2 then
+    local maxminT = ft[1].t and (ft[#ft].t - ft[1].t)
+    if #ft < 2 or maxminT < 30 then
         a = 0
         b = ft[#ft].x
     else
@@ -152,7 +155,7 @@ function least_squares_method(ft)
         a = (#ft*sum_tx - sum_t*sum_x)/(#ft*sum_t2 - sum_t^2)
         b = (sum_t2*sum_x - sum_tx*sum_t)/(#ft*sum_t2 - sum_t^2)
     end
-    return a, b
+    return a or 0, b or 0
 end
 
 --ID生成
@@ -212,32 +215,20 @@ function onTick()
                     y = {a = least ax, b = least bx, est = estimation},
                     z = {a = least ax, b = least bx, est = estimation},
                 },
-                IFF = {x = x, y = y, z = z},
+                IFF = {x = x, y = y, z = z, t = t_last},
+                IFFExist = IFFに登録されているかどうか,
                 ID = target ID,
                 t_last = -last tick, 最後に更新してから経過した時間
                 t_out = output tick,
-                IFFTick = IFFに検出されてから経過した時間
             },
             ...
         }
     ]]
     --データベースの時間経過とデータ削除
     for ID, DATA in pairs(target_data) do
+        --時間経過とIFFリセット
         DATA.t_out = DATA.t_out + 1
-        
-        --時間経過
-        if DATA.IFFTick > 0 then
-            DATA.IFFTick = DATA.IFFTick + 1
-            if target_data[ID].IFFTick > IFF_LOST_TICK then
-                DATA.IFFTick = 0
-                if #DATA.position == 0 then
-                    target_data[ID] = nil
-                end
-            end
-        end
-
         if #DATA.position ~= 0 then
-            --時間経過
             for _, POS in pairs(DATA.position) do
                 POS.t = POS.t - 1
             end
@@ -246,9 +237,9 @@ function onTick()
             --最大サンプル保持時間算出
             local distance = distance3(Px, Pz, Py, DATA.position[#DATA.position].x, DATA.position[#DATA.position].y, DATA.position[#DATA.position].z)
             local t_max = clamp(120*distance/1000 + 10, 2.5*DETECTION_INTERVAL, math.huge)
-        
+            
             --データ削除
-            if (DATA.t_last > t_max or DATA.t_last > DETECTION_INTERVAL*3) and DATA.IFFTick == 0 then
+            if (DATA.t_last > t_max or DATA.t_last > DETECTION_INTERVAL*3) and not DATA.IFFExist then
                 target_data[ID] = nil
             else
                 local i = 1
@@ -260,6 +251,8 @@ function onTick()
                     end
                 end
             end
+        elseif not DATA.IFFExist then
+            target_data[ID] = nil
         end
     end
     --MXT出力について時間経過と削除
@@ -268,6 +261,92 @@ function onTick()
         TGT.t = TGT.t + 1
         if TGT.t > MAX_TARGET_OUTPUT_TICK or target_data[TGT.ID] == nil then
             lock_on_list[index] = nil
+        end
+    end
+    --IFF情報について時間経過と削除
+    for IFFID, IFF in pairs(IFFData) do
+        --時間経過
+        IFF.t = IFF.t + 1
+        if IFF.t > IFF_LOST_TICK then
+            IFFData[IFFID] = nil
+        end
+    end
+
+    --IFF情報取り込み
+    local xID, yID, zID, x, y, z, inIFFID
+    xID, x = decode(INN(22))
+    yID, y = decode(INN(23))
+    zID, z = decode(INN(24))
+    inIFFID = xID*100 + yID*10 + zID
+    --IFF情報登録
+    if inIFFID ~= 0 then
+        IFFData[inIFFID] = {
+            x = x,
+            y = y,
+            z = z,
+            t = 0
+        }
+    end
+
+    --データベースIFFリセット
+    for _, DATA in pairs(target_data) do
+        DATA.IFFExist = false
+    end
+
+    --データベースへIFF情報反映
+    for IFFID, IFF in pairs(IFFData) do
+        local IFFExist = true
+
+        --最小距離の目標を探索
+        local minDist, minID = math.huge, 0
+        for ID, DATA in pairs(target_data) do
+            if DATA.predict ~= nil and not DATA.IFFExist then
+                local x1, y1, z1, dist
+                x1 = DATA.predict.x.a + DATA.predict.x.b
+                y1 = DATA.predict.y.a + DATA.predict.y.b
+                z1 = DATA.predict.z.a + DATA.predict.z.b
+                dist = distance3(x1, y1, z1, IFF.x, IFF.y, IFF.z)
+                if dist < minDist then
+                    minDist = dist
+                    minID = ID
+                end
+            end
+        end
+
+        if minID ~= 0 then
+            --許容誤差として最大移動ユークリッド距離を設定
+            local error = MAX_TARGET_ACCEL*(DETECTION_INTERVAL^2)/2 + MAX_TARGET_SPEED*DETECTION_INTERVAL + 0.02*distance3(0, 0, 0, IFF.x, IFF.y, IFF.z) + SAMA_VEHICLE_RADIUS
+
+            --データ追加
+            if minDist < error then
+                IFFExist = false
+                if target_data[IFFID] ~= nil then        --使いたいIDが既に占有されている場合
+                    target_data[IFFID], target_data[minID] = target_data[minID], target_data[IFFID]
+                    target_data[IFFID].ID, target_data[minID].ID = target_data[minID].ID, target_data[IFFID].ID
+                else                                     --使いたいIDが空いている場合
+                    target_data[IFFID], target_data[minID] = target_data[minID], nil
+                end
+                target_data[IFFID].IFF = IFF
+                target_data[IFFID].IFFExist = true
+            end
+        end
+
+        --新規登録
+        if IFFExist then
+            if target_data[IFFID] ~= nil then        --使いたいIDが既に占有されている場合移動させる
+                local newID = nextID()
+                target_data[IFFID].ID = newID
+                target_data[newID], target_data[IFFID] = target_data[IFFID], nil
+            end
+            target_data[IFFID] = {
+                position = {},
+                predict = {x = {a = 0, b = IFF.x}, y = {a = 0, b = IFF.y}, z = {a = 0, b = IFF.z}},
+                ID = IFFID,
+                t_last = 0,
+                t_out = math.huge,
+                IFF = IFF,
+                IFFExist = true
+            }
         end
     end
 
@@ -297,81 +376,6 @@ function onTick()
 
             --追加
             table.insert(new_target, {x = Wx, y = Wy, z = Wz, d = dist, t = 0})
-        end
-    end
-
-    --IFF情報取り込み
-    local xID, yID, zID, x, y, z, IFFID
-    xID, x = decode(INN(22))
-    yID, y = decode(INN(23))
-    zID, z = decode(INN(24))
-    IFFID = xID*100 + yID*10 + zID
-    if IFFID ~= 0 then
-        local IFFExist = true
-        --IFF情報登録
-        --[[
-        --IDが既存と一致する場合
-        if target_data[IFFID] and target_data[IFFID].IFFTick > 0 then
-            target_data[IFFID].IFF = {x = x, y = y, z = z}
-            target_data[IFFID].IFFTick = 1
-            IFFExist = false
-        end
-        ]]
-
-        --既存とIDが一致しない場合、同定を行う
-        if IFFExist then
-            --最小距離の目標を探索
-            local minDist, minID = math.huge, 0
-            for ID, DATA in ipairs(target_data) do
-                if DATA.predict ~= nil then
-                    local x1, y1, z1, dist
-                    x1 = DATA.predict.x.a + DATA.predict.x.b
-                    y1 = DATA.predict.y.a + DATA.predict.y.b
-                    z1 = DATA.predict.z.a + DATA.predict.z.b
-                    dist = distance3(x1, y1, z1, x, y, z)
-                    if dist < minDist then
-                        minDist = dist
-                        minID = ID
-                    end
-                end
-            end
-
-            if minID ~= 0 then
-                --許容誤差として最大移動ユークリッド距離を設定
-                local error = MAX_TARGET_ACCEL*(DETECTION_INTERVAL^2)/2 + MAX_TARGET_SPEED*DETECTION_INTERVAL + 0.05*distance3(0, 0, 0, x, y, z)
-
-                --データ追加
-                if minDist < error then
-                    IFFExist = false
-                    if target_data[IFFID] ~= nil then        --使いたいIDが既に占有されている場合
-                        target_data[IFFID], target_data[minID] = target_data[minID], target_data[IFFID]
-                        target_data[IFFID].ID, target_data[minID].ID = target_data[minID].ID, target_data[IFFID].ID
-                    else                                     --使いたいIDが空いている場合
-                        target_data[IFFID], target_data[minID] = target_data[minID], nil
-                    end
-                    target_data[IFFID].IFF = {x = x, y = y, z = z}
-                    target_data[IFFID].IFFTick = 1
-                end
-            end
-        end
-
-        --新規登録
-        if IFFExist then
-            IFFExist = false
-            if target_data[IFFID] ~= nil then        --使いたいIDが既に占有されている場合移動させる
-                local newID = nextID()
-                target_data[IFFID].ID = newID
-                target_data[newID], target_data[IFFID] = target_data[IFFID], nil
-            end
-            target_data[IFFID] = {
-                position = {},
-                predict = {x = {}, y = {}, z = {}},
-                ID = IFFID,
-                t_last = 0,
-                t_out = math.huge,
-                IFF = {x = x, y = y, z = z},
-                IFFTick = 1
-            }
         end
     end
 
@@ -445,7 +449,7 @@ function onTick()
         else
             error = MAX_TARGET_ACCEL*(DATA.t_last^2)/2
         end
-        error = error + 0.02*new_target[min_i].d
+        error = error + 0.02*new_target[min_i].d + SAMA_VEHICLE_RADIUS
         --データ追加
         if min_dist < error then
             new_target[min_i].d = nil
@@ -466,12 +470,12 @@ function onTick()
             t_last = 0,
             t_out = math.huge,
             IFF = {},
-            IFFTick = 0
+            IFFExist = false
         }
     end
 
     --位置推定
-    for _, DATA in pairs(target_data) do
+    for ID, DATA in pairs(target_data) do
         if #DATA.position ~= 0 then
             local table_x, table_y, table_z, ax, bx, ay, by, az, bz
             --テーブル作成
@@ -485,13 +489,13 @@ function onTick()
             ax, bx = least_squares_method(table_x)
             ay, by = least_squares_method(table_y)
             az, bz = least_squares_method(table_z)
-            DATA.predict = {
+            target_data[ID].predict = {
                 x = {a = ax, b = bx, est = ax*TARGET_DELAY + bx},
                 y = {a = ay, b = by, est = ay*TARGET_DELAY + by},
                 z = {a = az, b = bz, est = az*TARGET_DELAY + bz}
             }
         else
-            DATA.predict = {
+            target_data[ID].predict = {
                 x = {a = 0, b = DATA.IFF.x, est = DATA.IFF.x},
                 y = {a = 0, b = DATA.IFF.y, est = DATA.IFF.y},
                 z = {a = 0, b = DATA.IFF.z, est = DATA.IFF.z}
@@ -517,10 +521,11 @@ function onTick()
     end
 
     --ロックオンID更新
-    if select_ID ~= 0 and is_locked_on and is_short_press and target_data[select_ID].IFFTick == 0 then
+    if select_ID ~= 0 and is_locked_on and is_short_press and not target_data[select_ID].IFFExist then
         lock_on_ID = select_ID
-    elseif not is_locked_on then
+    elseif not is_locked_on or (target_data[lock_on_ID] and target_data[lock_on_ID].IFFExist) then
         lock_on_ID = 0
+        is_locked_on = false
     end
 
     --継続出力リストに追加
