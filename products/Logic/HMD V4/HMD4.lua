@@ -270,8 +270,8 @@ function onTick()
 
     compass = INN(17)*pi2
     
-    seat_x = INN(18)*pi2
-    seat_y = INN(19)*pi2
+    seat_x = INN(9)*pi2
+    seat_y = INN(10)*pi2
 
     WPx = INN(22)
     WPy = INN(23)
@@ -296,6 +296,8 @@ function onTick()
     show_WPmk_dist = PRB("waypoint marker distance")
     show_WP_dist = PRB("waypoint distance")
     show_WP_time = PRB("waypoint arrival time")
+    
+    attitudeMinAngle = math.floor(PRN("Minimum angle for attitude bars"))
 
     --レーザー方向補正
     if laser_direction then
@@ -343,12 +345,21 @@ function onDraw()
                 end
             end
         end
+    elseif show_attitude then   --最低限の水平儀
+        --左右
+        for j = -1, 1, 2 do
+            x1, y1, drawable1 = Polar2Display(0, j*5/360, 0, compass, 0)
+            x2, y2, drawable2 = Polar2Display(0, j*15/360, 0, compass, 0)
     
+            if drawable1 and drawable2 then
+                screen.drawLine(x1, y1, x2, y2)
+            end
+        end
     end
 
     --角度線
     if show_attitude then
-        for i = 5, 175, 5 do
+        for i = attitudeMinAngle, 175, attitudeMinAngle do
             --左右
             for j = -1, 1, 2 do
                 --上下

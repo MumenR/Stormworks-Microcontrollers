@@ -27,9 +27,11 @@ function decode(x)
 	return id, value * PRECISION
 end
 
-ID = 99
-coord = 305648.165462
+ID = 0.0
+coord = 0.0
 
 pack = encode(ID, coord)
+
+print(pack)
 
 print(decode(pack))

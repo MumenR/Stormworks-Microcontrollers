@@ -174,6 +174,7 @@ function nextID()
     return ID
 end
 
+spawnTick = 0
 function onTick()
     VEHICLE_RADIUS = PRN("Vehicle radius [m]")                          --自ビークルの半径。これ以下の場合補足されない。
     TARGET_DELAY = PRN("Delay [tick]")                                  --ノードなどによる遅延の補正に用いる時間
@@ -279,13 +280,16 @@ function onTick()
     zID, z = decode(INN(24))
     inIFFID = xID*100 + yID*10 + zID
     --IFF情報登録
-    if inIFFID ~= 0 then
+    if inIFFID ~= 0 and spawnTick > 3 then
         IFFData[inIFFID] = {
             x = x,
             y = y,
             z = z,
             t = 0
         }
+    end
+    if spawnTick < 4 then
+        spawnTick = spawnTick + 1
     end
 
     --データベースIFFリセット
@@ -521,7 +525,7 @@ function onTick()
     end
 
     --ロックオンID更新
-    if select_ID ~= 0 and is_locked_on and is_short_press and not target_data[select_ID].IFFExist then
+    if select_ID ~= 0 and is_locked_on and is_short_press and target_data[select_ID] and not target_data[select_ID].IFFExist then
         lock_on_ID = select_ID
     elseif not is_locked_on or (target_data[lock_on_ID] and target_data[lock_on_ID].IFFExist) then
         lock_on_ID = 0

@@ -23,17 +23,7 @@ do
         simulator:setInputNumber(1, 0)
         simulator:setInputNumber(2, 100)
         simulator:setInputNumber(3, 0)
-        simulator:setInputNumber(4, 3000*10^4 + 0001)
-
-        simulator:setInputNumber(5, 0)
-        simulator:setInputNumber(6, 100)
-        simulator:setInputNumber(7, 20)
-        simulator:setInputNumber(8, 3000*10^4 + 0002)
-
-        simulator:setInputNumber(9, 0)
-        simulator:setInputNumber(10, 100)
-        simulator:setInputNumber(11, 40)
-        simulator:setInputNumber(12, 3000*10^4 + 0003)
+        simulator:setInputNumber(4, 0001*10^3 + 0001)
     end;
 end
 ---@endsection
@@ -139,8 +129,8 @@ function drawSRD3(pixX, pixY, shapeNo, colorNo, addStaticNo, addDynamicNo, t)
     end
     --点矩形
     function drawDottedRect(x, y, w, h)
-        drawDottedLine(x, y, x, y + h)
-        drawDottedLine(x, y, x + w, y)
+        drawDottedLine(x, y, x, y + h + 2)
+        drawDottedLine(x, y, x + w + 2, y)
         drawDottedLine(x + w, y + h, x, y + h)
         drawDottedLine(x + w, y + h, x + w, y)
     end
@@ -198,38 +188,52 @@ function drawSRD3(pixX, pixY, shapeNo, colorNo, addStaticNo, addDynamicNo, t)
         elseif shapeNo == 4 then    --円
             drawCircle(pixX, pixY, r)
         elseif shapeNo == 5 then    --四角の端だけ
-            drawLine(x - r, y - r, x - r/2, y - r)
-            drawLine(x - r, y - r, x - r, y - r/2)
-            drawLine(x - r, y + r, x - r/2, y + r)
-            drawLine(x - r, y + r, x - r, y + r/2)
-            drawLine(x + r, y - r, x + r/2, y - r)
-            drawLine(x + r, y - r, x + r, y - r/2)
-            drawLine(x + r, y + r, x + r/2, y + r)
-            drawLine(x + r, y + r, x + r, y + r/2)
+            if r == 3 then
+                drawLine(x - r, y - r, x - r, y - r + 1)
+                drawLine(x - r, y + r, x - r, y + r + 1)
+                drawLine(x + r, y - r, x + r, y - r + 1)
+                drawLine(x + r, y + r, x + r, y + r + 1)
+            else
+                drawLine(x - r, y - r, x - r/2, y - r)
+                drawLine(x - r, y - r, x - r, y - r/2)
+                drawLine(x - r, y + r, x - r/2, y + r)
+                drawLine(x - r, y + r, x - r, y + r/2)
+                drawLine(x + r, y - r, x + r/2, y - r)
+                drawLine(x + r, y - r, x + r, y - r/2)
+                drawLine(x + r, y + r, x + r/2, y + r)
+                drawLine(x + r, y + r, x + r, y + r/2)
+            end
         elseif shapeNo == 6 then    --菱形の隅だけ
-            drawLine(x - r, y, x - r*3/4, y + r/4)
-            drawLine(x - r/4, y + r*3/4, x, y + r)
-            drawLine(x, y + r, x + r/4, y + r*3/4)
-            drawLine(x + r*3/4, y + r/4, x + r, y)
-            drawLine(x + r, y, x + r*3/4, y - r/4)
-            drawLine(x + r/4, y - r*3/4, x, y - r)
-            drawLine(x, y - r, x - r/4, y - r*3/4)
-            drawLine(x - r*3/4, y - r/4, x - r, y)
+            if r == 3 then
+                drawLine(x - r, y, x - r, y + 1)
+                drawLine(x, y + r, x, y + r + 1)
+                drawLine(x + r, y, x + r, y + 1)
+                drawLine(x, y - r, x, y - r + 1)
+            else
+                drawLine(x - r, y, x - r/2, y + r/2)
+                drawLine(x - r, y, x - r/2, y - r/2)
+                drawLine(x, y + r, x + r/2, y + r/2)
+                drawLine(x, y + r, x - r/2, y + r/2)
+                drawLine(x + r, y, x + r/2, y + r/2)
+                drawLine(x + r, y, x + r/2, y - r/2)
+                drawLine(x, y - r, x + r/2, y - r/2)
+                drawLine(x, y - r, x - r/2, y - r/2)
+            end
         end
     end
 
-    --静的追加機能
     drawAddStatic = function ()         --静的追加機能
         if addStaticNo == 1 then        --太
             drawShape(pixX, pixY, 3, addStaticNo == 2)
         elseif addStaticNo == 3 then    --中央点
-            screen.drawCircle(pixX, pixY, 1)
+            screen.drawLine(pixX - 1, pixY, pixX + 2, pixY)
+            screen.drawLine(pixX, pixY - 1, pixX, pixY + 2)
         elseif addStaticNo == 4 then    --十字
-            screen.drawLine(pixX + 4, pixY, pixX - 4, pixY)
-            screen.drawLine(pixX, pixY + 4, pixX, pixY - 4)
+            screen.drawLine(pixX + 4, pixY, pixX - 5, pixY)
+            screen.drawLine(pixX, pixY + 4, pixX, pixY - 5)
         elseif addStaticNo == 5 then    --クロス十字
-            screen.drawLine(pixX - 4, pixY - 4, pixX + 4, pixY + 4)
-            screen.drawLine(pixX + 4, pixY - 4, pixX - 4, pixY + 4)
+            screen.drawLine(pixX - 4, pixY - 4, pixX + 5, pixY + 5)
+            screen.drawLine(pixX + 4, pixY - 4, pixX - 5, pixY + 5)
         elseif addStaticNo == 6 then    --中央空き十字
             screen.drawLine(pixX + 4, pixY, pixX + 1, pixY)
             screen.drawLine(pixX - 4, pixY, pixX - 1, pixY)
@@ -248,7 +252,13 @@ function drawSRD3(pixX, pixY, shapeNo, colorNo, addStaticNo, addDynamicNo, t)
         {0, 255, 0},
         {16, 16, 255},
         {255, 0, 0},
-        {255, 0, 0}
+        {255, 255, 0},
+        {0, 255, 255},
+        {255, 0, 255},
+        {0, 255, 0},
+        {0, 255, 0},
+        {0, 255, 0},
+        {255, 255, 255}
     }
     if colorNoData[colorNo + 1] then
         screen.setColor(colorNoData[colorNo + 1][1], colorNoData[colorNo + 1][2], colorNoData[colorNo + 1][3])
@@ -278,14 +288,14 @@ function drawSRD3(pixX, pixY, shapeNo, colorNo, addStaticNo, addDynamicNo, t)
 end
 
 function onTick()
-    Px = INN(25)
-    Py = INN(26)
-    Pz = INN(27)
-    Ex = INN(28)
-    Ey = INN(29)
-    Ez = INN(30)
-    seat_x = INN(31)*pi2
-    seat_y = INN(32)*pi2
+    Px = INN(27)
+    Py = INN(28)
+    Pz = INN(29)
+    Ex = INN(30)
+    Ey = INN(31)
+    Ez = INN(32)
+    seat_x = INN(9)*pi2
+    seat_y = INN(10)*pi2
 
     delete_tick = PRN("Radar delete tick")
     dist_unit = PRN("Distance Units")
@@ -305,18 +315,19 @@ function onTick()
     --データ取り込み
     --data[ID]{x, y, z, t, shapeNo, colorNo, addStaticNo, addDynamicNo, drawTick}
     for i = 0, 5 do
-        local rawID = INN(i*4 + 4)
-        ID = rawID%10000
+        j = i > 1 and 2 or 0
+        local rawID = INN(i*4 + 4 + j)
+        ID = rawID%1000
         if ID ~= 0 then
             data[ID] = {
-                x = INN(i*4 + 1),
-                y = INN(i*4 + 2),
-                z = INN(i*4 + 3),
+                x = INN(i*4 + 1 + j),
+                y = INN(i*4 + 2 + j),
+                z = INN(i*4 + 3 + j),
                 t = 0,
-                shapeNo = math.floor(rawID/(10^4))%10,
-                colorNo = math.floor(rawID/(10^5))%10,
-                addStaticNo = math.floor(rawID/(10^6))%10,
-                addDynamicNo = math.floor(rawID/(10^7))%10,
+                shapeNo = math.floor(rawID/(10^3))%10,
+                colorNo = math.floor(rawID/(10^4))%10,
+                addStaticNo = math.floor(rawID/(10^5))%10,
+                addDynamicNo = math.floor(rawID/(10^6))%10,
                 drawTick = (data[ID] and data[ID].drawTick) or 0
             }
         end

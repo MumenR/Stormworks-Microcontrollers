@@ -186,6 +186,7 @@ function is_MXT_out(ID)
     return is_MXT_out
 end
 
+spawnTick = 0
 function onTick()
     VEHICLE_RADIUS = PRN("Vehicle radius [m]")                          --自ビークルの半径。これ以下の場合補足されない。
     TARGET_DELAY = PRN("Delay [tick]")                                  --ノードなどによる遅延の補正に用いる時間
@@ -290,13 +291,16 @@ function onTick()
     zID, z = decode(INN(24))
     inIFFID = xID*100 + yID*10 + zID
     --IFF情報登録
-    if inIFFID ~= 0 then
+    if inIFFID ~= 0 and spawnTick > 3 then
         IFFData[inIFFID] = {
             x = x,
             y = y,
             z = z,
             t = 0
         }
+    end
+    if spawnTick < 4 then
+        spawnTick = spawnTick + 1
     end
 
     --データベースIFFリセット
@@ -533,10 +537,11 @@ function onTick()
     end
 
     --ロックオンID更新
-    if select_ID ~= 0 and is_locked_on and is_short_press and not target_data[select_ID].IFFExist then
+    if select_ID ~= 0 and is_locked_on and is_short_press and target_data[select_ID] and not target_data[select_ID].IFFExist then
         lock_on_ID = select_ID
     elseif not is_locked_on or (target_data[lock_on_ID] and target_data[lock_on_ID].IFFExist) then
         lock_on_ID = 0
+        is_locked_on = false
     end
 
     --継続出力リストに追加
@@ -573,9 +578,9 @@ function onTick()
         OUN(i*4 - 2, target_data[lock_on_ID].predict.y.est)
         OUN(i*4 - 1, target_data[lock_on_ID].predict.z.est)
 
-        local offset_ID = target_data[lock_on_ID].ID + 2*10^4
+        local offset_ID = target_data[lock_on_ID].ID + 2*10^3
         if select_ID == lock_on_ID then
-            offset_ID = offset_ID + 1*10^6
+            offset_ID = offset_ID + 1*10^5
         end
 
         OUN(i*4 - 0, offset_ID)
@@ -597,12 +602,12 @@ function onTick()
         OUN(i*4 - 3, target_data[select_ID].predict.x.est)
         OUN(i*4 - 2, target_data[select_ID].predict.y.est)
         OUN(i*4 - 1, target_data[select_ID].predict.z.est)
-        local offset_ID = 1*10^6
+        local offset_ID = 1*10^5
         if is_MXT_out(select_ID) then
-            offset_ID = offset_ID + 1*10^4
+            offset_ID = offset_ID + 1*10^3
         end
         if target_data[select_ID].IFFExist then
-            offset_ID = offset_ID + 1*10^5
+            offset_ID = offset_ID + 1*10^4
         end
         OUN(i*4 - 0, target_data[select_ID].ID + offset_ID)
         target_data[select_ID].t_out = 0
@@ -627,10 +632,10 @@ function onTick()
 
             local offset_ID = 0
             if is_MXT_out(target_data[max_ID].ID) then
-                offset_ID = offset_ID + 1*10^4
+                offset_ID = offset_ID + 1*10^3
             end
             if target_data[max_ID].IFFExist then
-                offset_ID = offset_ID + 1*10^5
+                offset_ID = offset_ID + 1*10^4
             end
             OUN(j*4 - 0, target_data[max_ID].ID + offset_ID)
             target_data[max_ID].t_out = 0
@@ -638,8 +643,5 @@ function onTick()
     end
 
     --デバッグ
-    OUN(29, x)
-    OUN(30, y)
-    OUN(31, z)
     OUN(32, inIFFID)
 end

@@ -127,7 +127,7 @@ function onTick()
 
     --reset
     for i = 1, 32 do
-        OUN(i, 0)
+        OUN(i, encode(0, 0))
     end
 
     --最も最後に出力した値を探索
@@ -142,7 +142,7 @@ function onTick()
     --出力
     if maxID ~= 0 then
         --3チャンネルに圧縮(千、百: x, 十: y, 一: z)
-        local xID, yID, zID = math.floor((maxID/100)%100), math.floor((maxID/10)%10), math.floor(maxID%10)
+        local xID, yID, zID = math.floor((maxID/10)%10), math.floor((maxID/10)%10), math.floor(maxID%10)
         OUN(1, encode(xID, data[maxID].x))
         OUN(2, encode(yID, data[maxID].y))
         OUN(3, encode(zID, data[maxID].z))
