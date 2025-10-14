@@ -160,7 +160,7 @@ function onTick()
     is_ELI_fire = INB(1)
 
     HATCH_CLOSE_T = PRN("hatch close timing (s)")*60
-    LAUNCH_T = PRN("launch timing (s)")*60
+    LAUNCH_T = PRN("launch timing (s)")*60 + 4
     GUIDANCE_T = PRN("guidance time (s)")*60
 
     --時間経過処理とタイムアウト削除 MTX_data

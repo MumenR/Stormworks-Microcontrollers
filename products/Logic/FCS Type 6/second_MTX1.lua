@@ -67,7 +67,7 @@ IFFData = {}
 
 SHORT_PRESS_MAX_TICKS = 15
 IFF_LOST_TICK = 600
-SAMA_VEHICLE_RADIUS = 50
+SAME_VEHICLE_RADIUS = 50
 
 MAX_TARGET_SPEED = 300/60
 MAX_TARGET_ACCEL = 300/(60*60)
@@ -319,7 +319,7 @@ function onTick()
 
         if minID ~= 0 then
             --許容誤差として最大移動ユークリッド距離を設定
-            local error = MAX_TARGET_ACCEL*(DETECTION_INTERVAL^2)/2 + MAX_TARGET_SPEED*DETECTION_INTERVAL + 0.02*distance3(0, 0, 0, IFF.x, IFF.y, IFF.z) + SAMA_VEHICLE_RADIUS
+            local error = MAX_TARGET_ACCEL*(DETECTION_INTERVAL^2)/2 + MAX_TARGET_SPEED*DETECTION_INTERVAL + 0.02*distance3(0, 0, 0, IFF.x, IFF.y, IFF.z) + SAME_VEHICLE_RADIUS
 
             --データ追加
             if minDist < error then
@@ -453,7 +453,7 @@ function onTick()
         else
             error = MAX_TARGET_ACCEL*(DATA.t_last^2)/2
         end
-        error = error + 0.02*new_target[min_i].d + SAMA_VEHICLE_RADIUS
+        error = error + 0.02*new_target[min_i].d + SAME_VEHICLE_RADIUS
         --データ追加
         if min_dist < error then
             new_target[min_i].d = nil
