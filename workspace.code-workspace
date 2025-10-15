@@ -1,10 +1,6 @@
 {
 	"folders": [
 		{
-			"name": "CIWS controller V1",
-			"path": "products/Logic/CIWS controller V1"
-		},
-		{
 			"name": "autopilot V1",
 			"path": "products/Logic/autopilot V1"
 		},
@@ -43,6 +39,10 @@
 		{
 			"name": "Caterpillar Controller V1",
 			"path": "products/Logic/Caterpillar Controller V1"
+		},
+		{
+			"name": "CIWS controller V1",
+			"path": "products/Logic/CIWS controller V1"
 		},
 		{
 			"name": "Configurable HUD v3.3",

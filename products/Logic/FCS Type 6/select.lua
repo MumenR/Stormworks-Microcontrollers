@@ -134,7 +134,7 @@ function onTick()
     --データ取り込み
     --data[ID]{x, y, z, t}
     for i = 0, 5 do
-        ID = INN(i*4 + 4)%10000
+        ID = INN(i*4 + 4)%1000
         if ID ~= 0 then
             data[ID] = {
                 x = INN(i*4 + 1),

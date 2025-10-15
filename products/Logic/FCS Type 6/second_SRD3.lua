@@ -533,7 +533,7 @@ function onTick()
         is_locked_on = lock_on_ID ~= select_ID
     elseif #target_data == 0 or (target_data[lock_on_ID] == nil and lock_on_ID ~= 0) then
         is_locked_on = false
-        is_locked_on = false
+        lock_on_ID = 0
     end
 
     --ロックオンID更新
