@@ -120,6 +120,7 @@ function leastSquaresMethod(ft)
 end
 
 --対向速度と到達時間(近づくなら正)
+Pvx, Pvy, Pvz = 0, 0, 0
 function calClosingSpeed(Tx, Ty, Tz, Tvx, Tvy, Tvz)
     local Lx, Ly, Lz, Lvx, Lvy, Lvz, dist, cv, ct
     Lx, Ly, Lz = world2Local(Tx, Ty, Tz, Px, Py, Pz, Ex, Ey, Ez)
@@ -135,7 +136,6 @@ end
 
 function onTick()
     Px, Py, Pz, Ex, Ey, Ez = INN(25), INN(26), INN(27), INN(28), INN(29), INN(30)
-    Pvx, Pvy, Pvz = 0, INN(31), 0
 
     --データ登録
     --[[
@@ -211,11 +211,11 @@ function onTick()
 
     --最小値到達時間の目標を出力
     OUN(4, 0)
-    OUN(5, minT)
     if minID ~= 0 then
         OUN(1, data[minID].predict.x)
         OUN(2, data[minID].predict.y)
         OUN(3, data[minID].predict.z)
         OUN(4, minID)
+        OUN(5, minT)
     end
 end

@@ -236,7 +236,7 @@ EKF = {
         Wx, Wy, Wz = rotation.local2World(newTarget.Lx, newTarget.Ly, newTarget.Lz, Px, Py, Pz, Ex, Ey, Ez)
         return {
             x = matrix.transpose({{Wx, 0, 0, Wy, 0, 0, Wz, 0, 0}}),
-            P = matrix.diag({{(newTarget.dist*0.02)^2/60}}, 9),
+            P = matrix.diag({{(newTarget.dist*0.02)^2/12}}, 9),
             current = {x = Wx, y = Wy, z = Wz, vx = 0, vy = 0, vz = 0, ax = 0, ay = 0, az = 0},
             y = matrix.transpose({{0, 0, 0}}),
             z = matrix.transpose({{newTarget.dist, newTarget.yaw, newTarget.pitch}}),
@@ -310,8 +310,8 @@ EKF = {
         hx = matrix.transpose({{r, math.atan(Lx, Ly), math.asin(Lz/r)}})
         z = matrix.transpose({{newTarget.dist, newTarget.yaw, newTarget.pitch}})
         y = matrix.sub(z, hx)
-        R = matrix.diag({{(pi2*0.002)^2/60}}, 3)
-        R[1][1] = (newTarget.dist*0.02)^2/60
+        R = matrix.diag({{(pi2*0.002)^2/12}}, 3)
+        R[1][1] = (newTarget.dist*0.02)^2/12
         K = matrix.mul(matrix.mul(predictData.P, matrix.transpose(H)), matrix.inv(matrix.add(matrix.mul(matrix.mul(H, predictData.P), matrix.transpose(H)), R)))
         x = matrix.add(predictData.x, matrix.mul(K, y))
         P = matrix.mul(matrix.sub(I, matrix.mul(K, H)), predictData.P)
@@ -382,6 +382,22 @@ function PID(P, I, D, target, current, errorSumPre, errorPre, min, max)
     return clamp(controll, min, max), errorSum, error
 end
 
+--対向速度と到達時間(近づくなら正)
+Pvx, Pvy, Pvz = 0, 0, 0
+function calClosingSpeed(Tx, Ty, Tz, Tvx, Tvy, Tvz)
+    local Lx, Ly, Lz, Lvx, Lvy, Lvz, dist, cv, ct
+    Lx, Ly, Lz = world2Local(Tx, Ty, Tz, Px, Py, Pz, Ex, Ey, Ez)
+    Lvx, Lvy, Lvz = world2Local(Tvx, Tvy, Tvz, 0, 0, 0, Ex, Ey, Ez)
+    Lvx, Lvy, Lvz = Lvx - Pvx, Lvy - Pvz, Lvz - Pvy
+    dist = math.sqrt(Lx^2 + Ly^2 + Lz^2)
+    --対向速度
+    cv = -(Lvx*Lx + Lvy*Ly + Lvz*Lz)/dist
+    --到達時間
+    ct = cv > 0 and clamp(dist/cv, 0, math.huge) or math.huge
+    return cv, ct
+end
+
+threat = {x = 0, y = 0, z = 0, vx = 0, vy = 0, vz = 0, ax = 0, ay = 0, az = 0, ID = 0}
 function onTick()
 
     VEHICLE_RADIUS = PRN("Vehicle radius [m]")
@@ -393,8 +409,7 @@ function onTick()
     ELI2Exist = INB(13)
     ELI2X, ELI2Y, ELI2Z, ELI2Vx, ELI2Vy, ELI2Vz = INN(22), INN(23), INN(24), INN(25), INN(26), INN(27)
 
-    SRDExist = INN(31) == 1
-    SRDX, SRDY, SRDZ = INN(28), INN(29), INN(30)
+    SRD = {x = INN(28), y = INN(29), z = INN(30), ID = INN(31)%1000, t = INN(32)}
 
     --データ取り込み
     --newTGT = {{dist, yaw, pitch, local x, local y, local z}, ...}
@@ -417,7 +432,7 @@ function onTick()
         if A == nil then
             break
         end
-        errorRange = (3*0.02/5)*A.dist + SAME_VEHICLE_RADIUS
+        errorRange = 0.02*A.dist + SAME_VEHICLE_RADIUS
         sameTGT = {A}
         --距離を判定される側の探索
         j = i + 1
@@ -488,7 +503,7 @@ function onTick()
 
         --規定以下ならデータ追加、EKF更新
         if newTGT[minIndex] ~= nil then
-            error = (MAX_A*dt*dt/2 + MAX_V*dt + (3*0.02/5)*newTGT[minIndex].dist)*3 + MIN_ERROR
+            error = (MAX_A*dt*dt/2 + MAX_V*dt + 0.02*newTGT[minIndex].dist)*3 + MIN_ERROR
             if minDist < error then
                 data[ID] = EKF.update(predict, newTGT[minIndex])
                 newTGT[minIndex] = nil
@@ -521,7 +536,6 @@ function onTick()
         end
     end
 
-
     --メモ：条件分岐
     --[[
         自動迎撃
@@ -535,17 +549,109 @@ function onTick()
             自レーダーで検知時：自レーダー情報をもとに射撃
     ]]
 
+    --出力値決定
+    radarOn = false
+    TRD1X, TRD1Y, TRD1Z, TRD1Vx, TRD1Vy, TRD1Vz, TRD1Ax, TRD1Ay, TRD1Az = 0, 0, 0, 0, 0, 0, 0, 0, 0
+    TRD1Exists = false
+    if AutoInterceptEnable then     --自動迎撃モード(SRDか自レーダーの目標を自動選択)
+
+        --SRDとの同一判定
+        if SRD.ID ~= 0 then
+            local minID, minDist = 0, math.huge
+            local errorRange = 0.05*distance3(SRD.x, SRD.y, SRD.z, 0, 0, 0) + SAME_VEHICLE_RADIUS
+            for ID, DATA in pairs(data) do
+                local dist = distance3(SRD.x, SRD.y, SRD.z, DATA.x[1][1], DATA.x[4][1], DATA.x[7][1])
+                if dist < errorRange and dist < minDist then
+                    minDist = dist
+                    minID = ID
+                end
+            end
+            --同一目標が存在するなら、重複同定を避けるために削除する。
+            if minID ~= 0 then
+                SRD.ID = 0
+            end
+        end
+
+        --到達時間計算、最脅威決定
+        local minID, minT = 0, math.huge
+        for ID, DATA in pairs(data) do
+            local x, y, z, vx, vy, vz = DATA.x[1][1], DATA.x[4][1], DATA.x[7][1], DATA.x[2][1], DATA.x[5][1], DATA.x[8][1]
+            local cv, ct = calClosingSpeed(x, y, z, vx, vy, vz)
+
+            if ct < minT then
+                minT = ct
+                minID = ID
+            end
+        end
+        if minID ~= 0 then
+            if SRD.ID ~= 0 and SRD.t < minT then    --SRDに最脅威
+                threat = {x = SRD.x, y = SRD.y, z = SRD.z, vx = 0, vy = 0, vz = 0, ax = 0, ay = 0, az = 0, ID = SRD.ID}
+            else                                    --自レーダーに最脅威
+                local DATA = data[minID].x
+                threat = {x = DATA[1][1], y = DATA[4][1], z = DATA[7][1], vx = DATA[2][1], vy = DATA[5][1], vz = DATA[8][1], ax = DATA[3][1], ay = DATA[6][1], az = DATA[9][1], ID = minID}
+            end
+        elseif SRD.ID ~= 0 then                     --SRDのみが存在
+            threat = {x = SRD.x, y = SRD.y, z = SRD.z, vx = 0, vy = 0, vz = 0, ax = 0, ay = 0, az = 0, ID = SRD.ID}
+        else                                        --何もなし
+            threat = {x = 0, y = 0, z = 0, vx = 0, vy = 0, vz = 0, ax = 0, ay = 0, az = 0, ID = 0}
+        end
+    
+        if threat.ID ~= 0 then      --脅威あり
+            radarOn = true
+            TRD1X, TRD1Y, TRD1Z, TRD1Vx, TRD1Vy, TRD1Vz, TRD1Ax, TRD1Ay, TRD1Az = threat.x, threat.y, threat.z, threat.vx, threat.vy, threat.vz, threat.ax, threat.ay, threat.az
+            TRD1Exists = true
+        end
+    else                            --手動操作
+        --ELI2との同一判定
+        local minID, minDist = 0, math.huge
+        if ELI2Exist then
+            local errorRange = 0.05*distance3(ELI2X, ELI2Y, ELI2Z, 0, 0, 0) + SAME_VEHICLE_RADIUS
+            for ID, DATA in pairs(data) do
+                local dist = distance3(ELI2X, ELI2Y, ELI2Z, DATA.x[1][1], DATA.x[4][1], DATA.x[7][1])
+                if dist < errorRange and dist < minDist then
+                    minDist = dist
+                    minID = ID
+                end
+            end
+        end
+
+        if minID ~= 0 then          --自レーダーに反応あり
+            radarOn = true
+            TRD1Exists = true
+            local DATA = data[minID].x
+            TRD1X, TRD1Y, TRD1Z, TRD1Vx, TRD1Vy, TRD1Vz, TRD1Ax, TRD1Ay, TRD1Az = DATA[1][1], DATA[4][1], DATA[7][1], DATA[2][1], DATA[5][1], DATA[8][1], DATA[3][1], DATA[6][1], DATA[9][1]
+        elseif ELI2Exist then       --ELI2にのみ反応あり
+            radarOn = true
+            TRD1Exists = true
+            TRD1X, TRD1Y, TRD1Z, TRD1Vx, TRD1Vy, TRD1Vz, TRD1Ax, TRD1Ay, TRD1Az = ELI2X, ELI2Y, ELI2Z, ELI2Vx, ELI2Vy, ELI2Vz, 0, 0, 0
+        end
+    end
+
+    --レーダージンバル計算
+    if radarOn then
+        local Lx, Ly, Lz = rotation.world2Local(threat.x, threat.y, threat.z, Px, Py, Pz, Ex, Ey, Ez)
+        local dist, yaw, pitch = rect2Polar(Lx, Ly, Lz, false)
+        radarX, radarY = yaw*8, pitch*8
+    else
+        radarX, radarY = 0, 0
+    end
+
 
     OUB(1, TRD1Exists)
-    OUN(1, TRD1X)
-    OUN(2, TRD1Y)
-    OUN(3, TRD1Z)
-    OUN(4, TRD1Vx)
-    OUN(5, TRD1Vy)
-    OUN(6, TRD1Vz)
-    OUN(7, TRD1Ax)
-    OUN(8, TRD1Ay)
-    OUN(9, TRD1Az)
+    OUB(2, radarOn)
+
+    OUN(1, radarX)
+    OUN(2, radarY)
+
+    OUN(3, TRD1X)
+    OUN(4, TRD1Y)
+    OUN(5, TRD1Z)
+    OUN(6, TRD1Vx)
+    OUN(7, TRD1Vy)
+    OUN(8, TRD1Vz)
+    OUN(9, TRD1Ax)
+    OUN(10, TRD1Ay)
+    OUN(11, TRD1Az)
 
     OUB(9, INB(9))
     OUB(10, INB(10))
