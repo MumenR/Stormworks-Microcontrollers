@@ -51,19 +51,20 @@ pi2 = math.pi*2
 CAM_RAD_MIN = 0.025/2
 CAM_RAD_MAX = 2.2/2
 dt = 1
-TRD1_DELAY = 11             --レーダーのノードによる遅延補正用
-EKF_CONVERGENCE_TICK = 10   --収束までの時間
+TRD1_DELAY = 2              --レーダーのノードによる遅延補正用
 ELI3_TICK = 30              --ELI3による強制制御が有効になる時間
 MIN_ERROR = 50              --目標同定用の最小マハラノビス距離
-SAME_VEHICLE_RADIUS = 15    --同一目標合成用のビークル半径[m]
-RESIDUAL_THRESHOLD = 0.27   --可変Qの、残差平方和*100の閾値
+SAME_VEHICLE_RADIUS = 30    --同一目標合成用のビークル半径[m]
+RESIDUAL_THRESHOLD = 0.75   --可変Qの、残差平方和*100の閾値
+CONVERGENCE_TICK = 30       --収束判定用の経過時間
+ALPHA = 1.02                --減衰記憶フィルタの係数
 
-ALPHA = 1.01                --減衰記憶フィルタの係数
+CLOSE_T_THRESHOLD = 3600    --迎撃開始チックの最大値
+CLOSE_DIST_THRESHOLD = 2000 --迎撃開始距離の最大値(チックと距離どちらか満たせば迎撃)
 
 MAX_V = 300/60              --m/tick
 MAX_A = 300/3600            --m/tick*tick
 data = {}
-
 
 --行列演算ライブラリ
 matrix = {
@@ -244,7 +245,7 @@ EKF = {
             tOut = math.huge,
             isUpdate = true,
             PIDErrorPre = 0,
-            PIDErrorSum = 0
+            PIDErrorSum = 0,
         }
     end,
 
@@ -386,8 +387,8 @@ end
 Pvx, Pvy, Pvz = 0, 0, 0
 function calClosingSpeed(Tx, Ty, Tz, Tvx, Tvy, Tvz)
     local Lx, Ly, Lz, Lvx, Lvy, Lvz, dist, cv, ct
-    Lx, Ly, Lz = world2Local(Tx, Ty, Tz, Px, Py, Pz, Ex, Ey, Ez)
-    Lvx, Lvy, Lvz = world2Local(Tvx, Tvy, Tvz, 0, 0, 0, Ex, Ey, Ez)
+    Lx, Ly, Lz = rotation.world2Local(Tx, Ty, Tz, Px, Py, Pz, Ex, Ey, Ez)
+    Lvx, Lvy, Lvz = rotation.world2Local(Tvx, Tvy, Tvz, 0, 0, 0, Ex, Ey, Ez)
     Lvx, Lvy, Lvz = Lvx - Pvx, Lvy - Pvz, Lvz - Pvy
     dist = math.sqrt(Lx^2 + Ly^2 + Lz^2)
     --対向速度
@@ -397,19 +398,29 @@ function calClosingSpeed(Tx, Ty, Tz, Tvx, Tvy, Tvz)
     return cv, ct
 end
 
-threat = {x = 0, y = 0, z = 0, vx = 0, vy = 0, vz = 0, ax = 0, ay = 0, az = 0, ID = 0}
+dataSRD = {}
 function onTick()
 
+    --PHI = INN(19)
+
     VEHICLE_RADIUS = PRN("Vehicle radius [m]")
+    OFFSET_X, OFFSET_Y, OFFSET_Z = PRN("Radar phy. offset x (m)"), PRN("Radar phy. offset y (m)"), PRN("Radar phy. offset z (m)")
 
     Px, Py, Pz, Ex, Ey, Ez = INN(4), INN(8), INN(12), INN(16), INN(20), INN(21)
+    Px, Pz, Py = rotation.local2World(OFFSET_X, OFFSET_Y, OFFSET_Z, Px, Py, Pz, Ex, Ey, Ez)
 
     AutoInterceptEnable = INB(12)
 
     ELI2Exist = INB(13)
     ELI2X, ELI2Y, ELI2Z, ELI2Vx, ELI2Vy, ELI2Vz = INN(22), INN(23), INN(24), INN(25), INN(26), INN(27)
 
-    SRD = {x = INN(28), y = INN(29), z = INN(30), ID = INN(31)%1000, t = INN(32)}
+    --dataSRD時間経過と削除
+    for ID, DATA in pairs(dataSRD) do
+        DATA.tElapsed = DATA.tElapsed + 1
+        if dataSRD[ID].tElapsed > 1 then
+            dataSRD[ID] = nil
+        end
+    end
 
     --データ取り込み
     --newTGT = {{dist, yaw, pitch, local x, local y, local z}, ...}
@@ -424,6 +435,21 @@ function onTick()
             --追加
             table.insert(newTGT, {dist = dist, yaw = yaw, pitch = pitch, Lx = Lx, Ly = Ly, Lz = Lz})
         end
+    end
+    --dataSRD[迎撃優先順位] = {x, y, z, ID, t = 到達時間, tElapsed = 経過時間, detected = TRで検出済み}
+    if INN(31) > 0 then
+        local ID, priority = INN(31)%1000, math.floor(INN(31)/1000)
+        local detected = (dataSRD[priority] and dataSRD[priority].ID == ID) and dataSRD[priority].detected or false
+
+        dataSRD[priority] = {
+            x = INN(28),
+            y = INN(29),
+            z = INN(30),
+            ID = ID,
+            t = INN(32),
+            tElapsed = 0,
+            detected = detected
+        }
     end
 
     --同一目標の合体
@@ -476,9 +502,9 @@ function onTick()
 
         --自動プロセスノイズ調整(残差により変動)
         residual = 100*distance3(pi2*DATA.y[1][1]/DATA.z[1][1]/10, DATA.y[2][1], DATA.y[3][1], 0, 0, 0)
-        PIDControl, data[ID].PIDErrorSum, data[ID].PIDErrorPre = PID(0, 0.5, 0, RESIDUAL_THRESHOLD, residual, DATA.PIDErrorSum, DATA.PIDErrorPre, -2.5, 3)
+        PIDControl, data[ID].PIDErrorSum, data[ID].PIDErrorPre = PID(0, 2, 0, RESIDUAL_THRESHOLD, residual, DATA.PIDErrorSum, DATA.PIDErrorPre, -1, 2)
 
-        PHI = 10^-(10 + PIDControl)
+        PHI = 10^-(8 + PIDControl)
 
         --予測値の更新、マハラノビス距離用に共分散行列、平均ベクトルの変換
         mean, var, predict = {}, {}, EKF.predict(DATA, dt, PHI)
@@ -503,7 +529,7 @@ function onTick()
 
         --規定以下ならデータ追加、EKF更新
         if newTGT[minIndex] ~= nil then
-            error = (MAX_A*dt*dt/2 + MAX_V*dt + 0.02*newTGT[minIndex].dist)*3 + MIN_ERROR
+            error = (MAX_A*dt*dt/2 + MAX_V*dt + 0.02*newTGT[minIndex].dist)*15 + MIN_ERROR
             if minDist < error then
                 data[ID] = EKF.update(predict, newTGT[minIndex])
                 newTGT[minIndex] = nil
@@ -536,41 +562,13 @@ function onTick()
         end
     end
 
-    --メモ：条件分岐
-    --[[
-        自動迎撃
-            脅威なし：レーダーオフ、初期位置で待機
-            脅威あり、射程外：本体を標的へ指向し、検知待機(予測はしない・レーダーオン)
-            ロックオン、射撃：未来位置へ指向、射撃
-        手動操作(ELI)
-            not detect：レーダーオフ、初期位置で待機
-            ELI_detect：目標へ指向、レーダーオンで検知待機
-            自レーダー非検知、射程内：ELI情報をもとに射撃
-            自レーダーで検知時：自レーダー情報をもとに射撃
-    ]]
-
     --出力値決定
     radarOn = false
+    radarX, radarY = 0, 0
     TRD1X, TRD1Y, TRD1Z, TRD1Vx, TRD1Vy, TRD1Vz, TRD1Ax, TRD1Ay, TRD1Az = 0, 0, 0, 0, 0, 0, 0, 0, 0
     TRD1Exists = false
+    directAimEnable = false
     if AutoInterceptEnable then     --自動迎撃モード(SRDか自レーダーの目標を自動選択)
-
-        --SRDとの同一判定
-        if SRD.ID ~= 0 then
-            local minID, minDist = 0, math.huge
-            local errorRange = 0.05*distance3(SRD.x, SRD.y, SRD.z, 0, 0, 0) + SAME_VEHICLE_RADIUS
-            for ID, DATA in pairs(data) do
-                local dist = distance3(SRD.x, SRD.y, SRD.z, DATA.x[1][1], DATA.x[4][1], DATA.x[7][1])
-                if dist < errorRange and dist < minDist then
-                    minDist = dist
-                    minID = ID
-                end
-            end
-            --同一目標が存在するなら、重複同定を避けるために削除する。
-            if minID ~= 0 then
-                SRD.ID = 0
-            end
-        end
 
         --到達時間計算、最脅威決定
         local minID, minT = 0, math.huge
@@ -583,29 +581,81 @@ function onTick()
                 minID = ID
             end
         end
-        if minID ~= 0 then
-            if SRD.ID ~= 0 and SRD.t < minT then    --SRDに最脅威
-                threat = {x = SRD.x, y = SRD.y, z = SRD.z, vx = 0, vy = 0, vz = 0, ax = 0, ay = 0, az = 0, ID = SRD.ID}
-            else                                    --自レーダーに最脅威
-                local DATA = data[minID].x
-                threat = {x = DATA[1][1], y = DATA[4][1], z = DATA[7][1], vx = DATA[2][1], vy = DATA[5][1], vz = DATA[8][1], ax = DATA[3][1], ay = DATA[6][1], az = DATA[9][1], ID = minID}
+
+        --SRDとの同一判定
+        for PRIORITY, DATASRD in pairs(dataSRD) do
+            local minIDsame, minDist = 0, math.huge
+            local errorRange = 0.05*distance3(DATASRD.x, DATASRD.y, DATASRD.z, Px, Pz, Py) + SAME_VEHICLE_RADIUS
+            for ID, DATA in pairs(data) do
+                local dist = distance3(DATASRD.x, DATASRD.y, DATASRD.z, DATA.x[1][1], DATA.x[4][1], DATA.x[7][1])
+                if dist < errorRange and dist < minDist then
+                    minDist = dist
+                    minIDsame = ID
+                end
             end
-        elseif SRD.ID ~= 0 then                     --SRDのみが存在
-            threat = {x = SRD.x, y = SRD.y, z = SRD.z, vx = 0, vy = 0, vz = 0, ax = 0, ay = 0, az = 0, ID = SRD.ID}
-        else                                        --何もなし
-            threat = {x = 0, y = 0, z = 0, vx = 0, vy = 0, vz = 0, ax = 0, ay = 0, az = 0, ID = 0}
+
+            if minIDsame ~= 0 then
+                dataSRD[PRIORITY].detected = true
+                dataSRD[PRIORITY].sameExist = true
+            else
+                dataSRD[PRIORITY].sameExist = false
+            end
         end
-    
-        if threat.ID ~= 0 then      --脅威あり
+
+        --[[
+            TR制御：
+            SRの第一脅威へ指向、同定済み第一脅威がTRに存在しないなら第２脅威へ指向
+
+            砲制御：
+            視野内で最も脅威度の高いものへ射撃
+        ]]
+
+        isSRDdetected = dataSRD[1] or dataSRD[2]    --SR検出
+        isTRdetected = minID ~= 0                   --TR検出
+        isConvergence = isTRdetected and (data[minID].t > CONVERGENCE_TICK) --収束している
+
+        function returnSRD(priority)
+            return dataSRD[priority].x, dataSRD[priority].y, dataSRD[priority].z
+        end
+
+        --レーダー制御
+        if isSRDdetected then
+            local Wx, Wy, Wz
             radarOn = true
-            TRD1X, TRD1Y, TRD1Z, TRD1Vx, TRD1Vy, TRD1Vz, TRD1Ax, TRD1Ay, TRD1Az = threat.x, threat.y, threat.z, threat.vx, threat.vy, threat.vz, threat.ax, threat.ay, threat.az
-            TRD1Exists = true
+
+            if dataSRD[1] and data[2] then  --第一脅威、第二脅威ともに検出
+                --第一脅威が検出済みにも関わらず同定されなかった場合
+                if dataSRD[1].detected and not dataSRD[1].sameExist then
+                    Wx, Wy, Wz = returnSRD(2)
+                else
+                    Wx, Wy, Wz = returnSRD(1)
+                end
+            elseif dataSRD[1] then          --第一脅威のみ検出
+                Wx, Wy, Wz = returnSRD(1)
+            else                            --第二脅威のみ検出
+                Wx, Wy, Wz = returnSRD(2)
+            end
+
+            local Lx, Ly, Lz = rotation.world2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
+            _, radarX, radarY = rect2Polar(Lx, Ly, Lz, false)
         end
+
+        --砲制御
+        if minID ~= 0 then
+            local DATA = data[minID].current
+            TRD1X, TRD1Y, TRD1Z, TRD1Vx, TRD1Vy, TRD1Vz, TRD1Ax, TRD1Ay, TRD1Az = DATA.x, DATA.y, DATA.z, DATA.vx, DATA.vy, DATA.vz, DATA.ax, DATA.ay, DATA.az
+            if isConvergence then
+                TRD1Exists = true
+            else
+                directAimEnable = true
+            end
+        end
+
     else                            --手動操作
         --ELI2との同一判定
         local minID, minDist = 0, math.huge
         if ELI2Exist then
-            local errorRange = 0.05*distance3(ELI2X, ELI2Y, ELI2Z, 0, 0, 0) + SAME_VEHICLE_RADIUS
+            local errorRange = 0.05*distance3(ELI2X, ELI2Y, ELI2Z, Px, Pz, Py) + SAME_VEHICLE_RADIUS
             for ID, DATA in pairs(data) do
                 local dist = distance3(ELI2X, ELI2Y, ELI2Z, DATA.x[1][1], DATA.x[4][1], DATA.x[7][1])
                 if dist < errorRange and dist < minDist then
@@ -625,20 +675,17 @@ function onTick()
             TRD1Exists = true
             TRD1X, TRD1Y, TRD1Z, TRD1Vx, TRD1Vy, TRD1Vz, TRD1Ax, TRD1Ay, TRD1Az = ELI2X, ELI2Y, ELI2Z, ELI2Vx, ELI2Vy, ELI2Vz, 0, 0, 0
         end
-    end
 
-    --レーダージンバル計算
-    if radarOn then
-        local Lx, Ly, Lz = rotation.world2Local(threat.x, threat.y, threat.z, Px, Py, Pz, Ex, Ey, Ez)
-        local dist, yaw, pitch = rect2Polar(Lx, Ly, Lz, false)
-        radarX, radarY = yaw*8, pitch*8
-    else
-        radarX, radarY = 0, 0
+        --レーダージンバル計算
+        if radarOn then
+            local Lx, Ly, Lz = rotation.world2Local(TRD1X, TRD1Y, TRD1Z, Px, Py, Pz, Ex, Ey, Ez)
+            _, radarX, radarY = rect2Polar(Lx, Ly, Lz, false)
+        end
     end
-
 
     OUB(1, TRD1Exists)
     OUB(2, radarOn)
+    OUB(3, directAimEnable)
 
     OUN(1, radarX)
     OUN(2, radarY)
@@ -657,4 +704,6 @@ function onTick()
     OUB(10, INB(10))
     OUB(11, INB(11))
 
+    --debug
+    OUN(31, #data)
 end

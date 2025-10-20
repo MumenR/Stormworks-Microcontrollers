@@ -134,6 +134,7 @@ function calClosingSpeed(Tx, Ty, Tz, Tvx, Tvy, Tvz)
     return cv, ct
 end
 
+minOutput = true
 function onTick()
     Px, Py, Pz, Ex, Ey, Ez = INN(25), INN(26), INN(27), INN(28), INN(29), INN(30)
 
@@ -209,13 +210,30 @@ function onTick()
         end
     end
 
-    --最小値到達時間の目標を出力
+    --第二到達時間の目標を探索
+    minID2, minT2 = 0, math.huge
+    for ID, DATA in pairs(data) do
+        if DATA.closing.ct < minT2 and ID ~= minID then
+            minID2 = ID
+            minT2 = DATA.closing.ct
+        end
+    end
+
+    --到達時間が小さい目標を2つ交互に出力
     OUN(4, 0)
-    if minID ~= 0 then
+    if minID ~= 0 and (minOutput or minID2 == 0)  then
         OUN(1, data[minID].predict.x)
         OUN(2, data[minID].predict.y)
         OUN(3, data[minID].predict.z)
-        OUN(4, minID)
+        OUN(4, 1000 + minID%1000)
         OUN(5, minT)
+    elseif minID2 ~= 0 then
+        OUN(1, data[minID2].predict.x)
+        OUN(2, data[minID2].predict.y)
+        OUN(3, data[minID2].predict.z)
+        OUN(4, 2000 + minID2%1000)
+        OUN(5, minT2)
     end
+
+    minOutput = not minOutput
 end

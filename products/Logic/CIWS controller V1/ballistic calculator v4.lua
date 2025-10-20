@@ -272,34 +272,34 @@ function rect2Polar(x, y, z, radian_bool)
 end
 
 function onTick()
-    Tx = INN(1)
-    Ty = INN(2)
-    Tz = INN(3)
-    Tvx = INN(4)
-    Tvy = INN(5)
-    Tvz = INN(6)
-    Tax = INN(7)
-    Tay = INN(8)
-    Taz = INN(9)
+    Tx = INN(3)
+    Ty = INN(4)
+    Tz = INN(5)
+    Tvx = INN(6)
+    Tvy = INN(7)
+    Tvz = INN(8)
+    Tax = INN(9)
+    Tay = INN(10)
+    Taz = INN(11)
 
-    Px = INN(10)
-    Py = INN(11)
-    Pz = INN(12)
-    Ex = INN(13)
-    Ey = INN(14)
-    Ez = INN(15)
+    Px = INN(12)
+    Py = INN(13)
+    Pz = INN(14)
+    Ex = INN(15)
+    Ey = INN(16)
+    Ez = INN(17)
 
-    Pvx = INN(16)/60
-    Pvy = INN(17)/60
-    Pvz = INN(18)/60
-    Prvx = INN(19)*pi2/60
-    Prvy = INN(20)*pi2/60
-    Prvz = INN(21)*pi2/60
+    Pvx = INN(18)/60
+    Pvy = INN(19)/60
+    Pvz = INN(20)/60
+    Prvx = INN(21)*pi2/60
+    Prvy = INN(22)*pi2/60
+    Prvz = INN(23)*pi2/60
 
-    windLv = INN(22)/60
-    windLdirec = INN(23)
-    currentPitch = INN(24)
-    currentYaw = INN(25)
+    windLv = INN(24)/60
+    windLdirec = INN(25)
+    currentPitch = INN(26)
+    currentYaw = INN(27)
 
     WPN_TYPE = PRN("Weapon Type") + 1
     STANDBY_YAW = PRN("standby yaw position (degree)")/360
@@ -317,15 +317,16 @@ function onTick()
     PITCH_PIVOT = PRN("Pitch gear ratio (1 : ?)")/PRN("Types of Pitch PIVOT")   --gear/pivot
     YAW_PIVOT = PRN("Yaw gear ratio (1 : ?)")/PRN("Types of Yaw PIVOT")
 
-    OFFSET_X = PRN("offset x (m)")
-    OFFSET_Y = PRN("offset y (m)")
-    OFFSET_Z = PRN("offset z (m)")
+    OFFSET_X = PRN("Body phy. offset x (m)")
+    OFFSET_Y = PRN("Body phy. offset y (m)")
+    OFFSET_Z = PRN("Body phy. offset z (m)")
 
     TRD1Exists = INB(1)
+    directAim = INB(3)
 
-    power = INB(2)
-    highAngleEnable = INB(4)
-    reloadEnable = INB(5)
+    power = INB(9)
+    highAngleEnable = INB(10)
+    reloadEnable = INB(11)
 
     inRange = false
 
@@ -337,8 +338,7 @@ function onTick()
     --自分基準ワールド座標系へ
     TWLx, TWLy, TWLz = Tx - Px, Ty - Pz, Tz - Py
 
-    --補足時かつ起動時
-    if TRD1Exists and power then
+    if TRD1Exists and power then    --弾道計算
         --遅れ補正
         TWLx, TWLy, TWLz, Tvx, Tvy, Tvz = predictTRD1(TWLx, TWLy, TWLz, Tvx, Tvy, Tvz, Tax, Tay, Taz, TRD1_DELAY)
         --ワールド速度
@@ -467,6 +467,13 @@ function onTick()
             end
             tickPre = tick
         end
+
+        --射程外なら直接照準
+        if not inRange then
+            Elevation, Azimuth = rect2Polar(TWLx, TWLy, TWLz, true)
+        end
+    elseif power and directAim then --直接照準
+        Elevation, Azimuth = rect2Polar(TWLx, TWLy, TWLz, true)
     else
         Azimuth, Elevation = 0, 0
         inRange = false
@@ -474,7 +481,7 @@ function onTick()
     end
 
     --スタビライザー
-    if inRange then
+    if power and (TRD1Exists or directAim) then
         --向くべき座標計算
         stabiWx, stabiWy, stabiWz = Px + INFTY*math.sin(Azimuth), Pz + INFTY*math.cos(Azimuth), Py + INFTY*math.tan(Elevation)
         srabiLx, srabiLy, srabiLz = world2Local(stabiWx, stabiWy, stabiWz, Px, Py, Pz, Ex, Ey, Ez)
