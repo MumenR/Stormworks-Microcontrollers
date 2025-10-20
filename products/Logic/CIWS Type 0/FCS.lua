@@ -623,7 +623,7 @@ function onTick()
             local Wx, Wy, Wz
             radarOn = true
 
-            if dataSRD[1] and data[2] then  --第一脅威、第二脅威ともに検出
+            if dataSRD[1] and dataSRD[2] then  --第一脅威、第二脅威ともに検出
                 --第一脅威が検出済みにも関わらず同定されなかった場合
                 if dataSRD[1].detected and not dataSRD[1].sameExist then
                     Wx, Wy, Wz = returnSRD(2)

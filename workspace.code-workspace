@@ -41,8 +41,8 @@
 			"path": "products/Logic/Caterpillar Controller V1"
 		},
 		{
-			"name": "CIWS controller V1",
-			"path": "products/Logic/CIWS controller V1"
+			"name": "CIWS Type 0",
+			"path": "products/Logic/CIWS Type 0"
 		},
 		{
 			"name": "Configurable HUD v3.3",
@@ -185,16 +185,16 @@
 			"path": "products/Logic/Spd and Alt disolay V3"
 		},
 		{
-			"name": "SR V1",
-			"path": "products/Logic/SR V1"
+			"name": "SR Type １",
+			"path": "products/Logic/SR Type １"
 		},
 		{
-			"name": "SR V2",
-			"path": "products/Logic/SR V2"
+			"name": "SR Type ２",
+			"path": "products/Logic/SR Type ２"
 		},
 		{
-			"name": "SR V3",
-			"path": "products/Logic/SR V3"
+			"name": "SR Type ３",
+			"path": "products/Logic/SR Type ３"
 		},
 		{
 			"name": "Sub Hatch Controller V1",
