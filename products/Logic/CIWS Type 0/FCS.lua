@@ -56,7 +56,7 @@ ELI3_TICK = 30              --ELI3による強制制御が有効になる時間
 MIN_ERROR = 50              --目標同定用の最小マハラノビス距離
 SAME_VEHICLE_RADIUS = 30    --同一目標合成用のビークル半径[m]
 RESIDUAL_THRESHOLD = 0.75   --可変Qの、残差平方和*100の閾値
-CONVERGENCE_TICK = 30       --収束判定用の経過時間
+CONVERGENCE_TICK = 10       --収束判定用の経過時間
 ALPHA = 1.02                --減衰記憶フィルタの係数
 
 CLOSE_T_THRESHOLD = 3600    --迎撃開始チックの最大値
@@ -402,6 +402,7 @@ dataSRD = {}
 function onTick()
 
     --PHI = INN(19)
+    OUB(32, false)
 
     VEHICLE_RADIUS = PRN("Vehicle radius [m]")
     OFFSET_X, OFFSET_Y, OFFSET_Z = PRN("Radar phy. offset x (m)"), PRN("Radar phy. offset y (m)"), PRN("Radar phy. offset z (m)")
@@ -585,7 +586,7 @@ function onTick()
         --SRDとの同一判定
         for PRIORITY, DATASRD in pairs(dataSRD) do
             local minIDsame, minDist = 0, math.huge
-            local errorRange = 0.05*distance3(DATASRD.x, DATASRD.y, DATASRD.z, Px, Pz, Py) + SAME_VEHICLE_RADIUS
+            local errorRange = 0.05*distance3(DATASRD.x, DATASRD.y, DATASRD.z, Px, Pz, Py) + SAME_VEHICLE_RADIUS + 50
             for ID, DATA in pairs(data) do
                 local dist = distance3(DATASRD.x, DATASRD.y, DATASRD.z, DATA.x[1][1], DATA.x[4][1], DATA.x[7][1])
                 if dist < errorRange and dist < minDist then
