@@ -70,7 +70,7 @@ IFF_LOST_TICK = 600
 SAME_VEHICLE_RADIUS = 50
 
 MAX_TARGET_SPEED = 300/60
-MAX_TARGET_ACCEL = 900/(60*60)
+MAX_TARGET_ACCEL = 300/(60*60)
 
 PRECISION = 0.1     --valueの最小保証精度
 NBITS = 24          --valueに割り当てるビット数
@@ -221,6 +221,7 @@ function onTick()
                 ID = target ID,
                 t_last = -last tick, 最後に更新してから経過した時間
                 t_out = output tick,
+                isNewIdentify = 新規目標を同定したかのフラグ
             },
             ...
         }
@@ -229,6 +230,7 @@ function onTick()
     for ID, DATA in pairs(target_data) do
         --時間経過とIFFリセット
         DATA.t_out = DATA.t_out + 1
+        DATA.isNewIdentify = false
         if #DATA.position ~= 0 then
             for _, POS in pairs(DATA.position) do
                 POS.t = POS.t - 1
@@ -421,45 +423,51 @@ function onTick()
     end
 
     --目標同定
-    for _, DATA in pairs(target_data) do
+    for NEWID, NEW in pairs(new_target) do
         local error, min_dist, min_i, x1, y1, z1, distance
-        if #new_target == 0 then
+        if #target_data == 0 then
             break
         end
         --最小距離データを探索
         min_dist = math.huge
         min_i = 0
-        if #DATA.position == 0 then
-            x1 = DATA.IFF.x
-            y1 = DATA.IFF.y
-            z1 = DATA.IFF.z
-        else
-            x1 = DATA.predict.x.a + DATA.predict.x.b
-            y1 = DATA.predict.y.a + DATA.predict.y.b
-            z1 = DATA.predict.z.a + DATA.predict.z.b
-        end
+        for i, DATA in pairs(target_data) do
+            if #DATA.position == 0 then
+                x1 = DATA.IFF.x
+                y1 = DATA.IFF.y
+                z1 = DATA.IFF.z
+            else
+                x1 = DATA.predict.x.a + DATA.predict.x.b
+                y1 = DATA.predict.y.a + DATA.predict.y.b
+                z1 = DATA.predict.z.a + DATA.predict.z.b
+            end
 
-        for i, NEW in pairs(new_target) do
             distance = distance3(x1, y1, z1, NEW.x, NEW.y, NEW.z)
-            if distance < min_dist then
+            if distance < min_dist and not DATA.isNewIdentify then
                 min_dist = distance
                 min_i = i
             end
         end
 
         --許容誤差として最大移動ユークリッド距離を設定
-        if #DATA.position <= 1 then
-            error = MAX_TARGET_SPEED*DATA.t_last
-        else
-            error = MAX_TARGET_ACCEL*(DATA.t_last^2)/2
-        end
-        error = error + 0.02*new_target[min_i].d + SAME_VEHICLE_RADIUS
-        --データ追加
-        if min_dist < error then
-            new_target[min_i].d = nil
-            DATA.t_out = math.huge
-            table.insert(DATA.position, new_target[min_i])
-            table.remove(new_target, min_i)
+        if min_i ~= 0 then
+            local DATA = target_data[min_i]
+            if #DATA.position <= 1 then
+                error = MAX_TARGET_SPEED*DATA.t_last
+            else
+                error = MAX_TARGET_ACCEL*(DATA.t_last^2)/2
+            end
+
+            error = error + 0.02*NEW.d + SAME_VEHICLE_RADIUS
+
+            --データ追加
+            if min_dist < error then
+                new_target[NEWID].d = nil
+                DATA.t_out = math.huge
+                DATA.isNewIdentify = true
+                table.insert(DATA.position, new_target[NEWID])
+                new_target[NEWID] = nil
+            end
         end
     end
 
@@ -474,7 +482,8 @@ function onTick()
             t_last = 0,
             t_out = math.huge,
             IFF = {},
-            IFFExist = false
+            IFFExist = false,
+            isNewIdentify = false
         }
     end
 

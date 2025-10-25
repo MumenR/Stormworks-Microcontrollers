@@ -403,6 +403,8 @@ function onTick()
 
     --PHI = INN(19)
     OUB(32, false)
+    OUB(31, false)
+    OUB(30, false)
 
     VEHICLE_RADIUS = PRN("Vehicle radius [m]")
     OFFSET_X, OFFSET_Y, OFFSET_Z = PRN("Radar phy. offset x (m)"), PRN("Radar phy. offset y (m)"), PRN("Radar phy. offset z (m)")
@@ -418,7 +420,7 @@ function onTick()
     --dataSRD時間経過と削除
     for ID, DATA in pairs(dataSRD) do
         DATA.tElapsed = DATA.tElapsed + 1
-        if dataSRD[ID].tElapsed > 1 then
+        if dataSRD[ID].tElapsed > 3 then
             dataSRD[ID] = nil
         end
     end
@@ -626,6 +628,9 @@ function onTick()
 
             if dataSRD[1] and dataSRD[2] then  --第一脅威、第二脅威ともに検出
                 --第一脅威が検出済みにも関わらず同定されなかった場合
+                OUB(32, true)
+                OUB(31, dataSRD[1].detected)
+                OUB(30, dataSRD[1].sameExist)
                 if dataSRD[1].detected and not dataSRD[1].sameExist then
                     Wx, Wy, Wz = returnSRD(2)
                 else

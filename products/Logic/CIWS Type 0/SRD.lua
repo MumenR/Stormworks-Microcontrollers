@@ -58,8 +58,8 @@ pi2 = math.pi*2
 data = {}
 
 TARGET_DELETE_TICK = 120
-MAX_V = 300/60
-MAX_A = 300/60/60
+MAX_V = 1000/60
+MAX_A = 1000/60/60
 SAME_VEHICLE_RADIUS = 50
 
 --ワールド座標からローカル座標へ(physics sensor使用)
@@ -137,6 +137,11 @@ function calClosingSpeed(Tx, Ty, Tz, Tvx, Tvy, Tvz)
     return cv, ct
 end
 
+--３次元ユークリッド距離
+function distance3(x1, y1, z1, x2, y2 ,z2)
+    return math.sqrt((x1 - x2)^2 + (y1 - y2)^2 + (z1 - z2)^2)
+end
+
 minOutput = true
 function onTick()
     Px, Py, Pz, Ex, Ey, Ez = INN(25), INN(26), INN(27), INN(28), INN(29), INN(30)
@@ -155,22 +160,6 @@ function onTick()
         end
     end
 
-    --データ取り込み
-    --dataNew[index] = {x = x, y = y, z = z, ID = ID}
-    dataNew = {}
-    for i = 1, 6 do
-        ID = INN(4*i)%1000
-        if ID > 0 then
-            dataNew[i] = {
-                x = INN(4*i - 3),
-                y = INN(4*i - 2),
-                z = INN(4*i - 1),
-                ID = ID,
-                t = 0
-            }
-        end
-    end
-
     --データ登録
     --[[
         data[ID] = {
@@ -178,37 +167,26 @@ function onTick()
             predict = {x = x, y = y, z = z, vx = vx, vy = vy, vz = vz}
         }
     ]]
-    for _, NEW in pairs(dataNew) do
-        --detaにIDが存在する場合
-        if data[NEW.ID] then
-            table.insert(data[ID].raw, NEW)
-        else    --dataに存在しない場合、既存の目標と同一の可能性を考慮し、目標同定
+    for i = 1, 6 do
+        ID = INN(4*i)%1000
+        if ID > 0 then
+            newdata = {
+                x = INN(4*i - 3),
+                y = INN(4*i - 2),
+                z = INN(4*i - 1),
+                ID = ID,
+                t = 0
+            }
 
-            --最小値探索
-            local minID, minDist, tLast, error = 0, math.huge, 0, 0
-            for ID, DATA in pairs(data) do
-                local distance = distance3(DATA.predict.x, DATA.predict.y, DATA.predict.z, NEW.x, NEW.y, NEW.z)
-                if distance < minDist then
-                    minDist = distance
-                    minID = ID
-                end
+            --新規登録
+            if not data[ID] then
+                data[ID] = {raw = {}}
             end
-            
-            --許容誤差として最大移動ユークリッド距離を設定
-            if minID ~= 0 then
-                tLast = -data[minID].raw[#data[minID].raw].t
-                error = MAX_A*(tLast^2)/2 + MAX_V*tLast + SAME_VEHICLE_RADIUS
-            end
-            
-            --範囲内なら同定
-            if minID ~= 0 and minDist < error then
-                table.insert(data[minID].raw, NEW)
-            else    --新規登録
-                data[NEW.ID] = {raw = {}}
-                table.insert(data[ID].raw, NEW)
-            end
+            table.insert(data[ID].raw, newdata)
         end
     end
+
+
 
     --予測
     for ID, DATA in pairs(data) do
@@ -237,7 +215,7 @@ function onTick()
     --最短到達時間の目標を探索
     minID, minT = 0, math.huge
     for ID, DATA in pairs(data) do
-        if DATA.closing.ct < minT then
+        if DATA.closing.ct < minT - 60 then
             minID = ID
             minT = DATA.closing.ct
         end
@@ -246,7 +224,7 @@ function onTick()
     --第二到達時間の目標を探索
     minID2, minT2 = 0, math.huge
     for ID, DATA in pairs(data) do
-        if DATA.closing.ct < minT2 and ID ~= minID then
+        if DATA.closing.ct < minT2 - 60 and ID ~= minID then
             minID2 = ID
             minT2 = DATA.closing.ct
         end
