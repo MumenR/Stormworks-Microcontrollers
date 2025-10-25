@@ -67,7 +67,7 @@ I = 0
 D = 20
 
 INFTY = 10000
-PIVOT_MAX_ERROR = 2 --degree
+PIVOT_MAX_ERROR = 5 --degree
 
 parameter = {
     {600, 0.0005, 2400, 0.105}, --Bertha

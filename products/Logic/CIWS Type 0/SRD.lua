@@ -62,6 +62,8 @@ MAX_V = 1000/60
 MAX_A = 1000/60/60
 SAME_VEHICLE_RADIUS = 50
 
+INTERCEPT_TICK = 3600
+
 --ワールド座標からローカル座標へ(physics sensor使用)
 function world2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
     local a, b, c, d, e, f, g, h, i, j, k, l, x, z, y, Lower
@@ -169,7 +171,8 @@ function onTick()
     ]]
     for i = 1, 6 do
         ID = INN(4*i)%1000
-        if ID > 0 then
+        isAlly = math.floor(INN(4*i)/10^4) == 1
+        if ID > 0 and not isAlly then
             newdata = {
                 x = INN(4*i - 3),
                 y = INN(4*i - 2),
@@ -185,8 +188,6 @@ function onTick()
             table.insert(data[ID].raw, newdata)
         end
     end
-
-
 
     --予測
     for ID, DATA in pairs(data) do
@@ -213,7 +214,7 @@ function onTick()
     end
 
     --最短到達時間の目標を探索
-    minID, minT = 0, math.huge
+    minID, minT = 0, INTERCEPT_TICK
     for ID, DATA in pairs(data) do
         if DATA.closing.ct < minT - 60 then
             minID = ID
@@ -222,7 +223,7 @@ function onTick()
     end
 
     --第二到達時間の目標を探索
-    minID2, minT2 = 0, math.huge
+    minID2, minT2 = 0, INTERCEPT_TICK
     for ID, DATA in pairs(data) do
         if DATA.closing.ct < minT2 - 60 and ID ~= minID then
             minID2 = ID

@@ -58,9 +58,10 @@ SAME_VEHICLE_RADIUS = 30    --同一目標合成用のビークル半径[m]
 RESIDUAL_THRESHOLD = 0.75   --可変Qの、残差平方和*100の閾値
 CONVERGENCE_TICK = 10       --収束判定用の経過時間
 ALPHA = 1.02                --減衰記憶フィルタの係数
+PID_I = 5                   --可変QのI制御値
 
-CLOSE_T_THRESHOLD = 3600    --迎撃開始チックの最大値
-CLOSE_DIST_THRESHOLD = 2000 --迎撃開始距離の最大値(チックと距離どちらか満たせば迎撃)
+MORE_THREAT_TICK = 180      --捜索レーダーよりも優先すべき脅威の到達時間(捜索レーダーよりこのチックぶん脅威が高いと即時切り替え)
+INTERCEPT_TICK = 3600       --迎撃開始チック
 
 MAX_V = 300/60              --m/tick
 MAX_A = 300/3600            --m/tick*tick
@@ -399,7 +400,6 @@ function calClosingSpeed(Tx, Ty, Tz, Tvx, Tvy, Tvz)
 end
 
 dataSRD = {}
-radarGimbalX = {0, 0, 0, 0, 0}
 function onTick()
 
     --PHI = INN(19)
@@ -504,7 +504,7 @@ function onTick()
 
         --自動プロセスノイズ調整(残差により変動)
         residual = 100*distance3(pi2*DATA.y[1][1]/DATA.z[1][1]/10, DATA.y[2][1], DATA.y[3][1], 0, 0, 0)
-        PIDControl, data[ID].PIDErrorSum, data[ID].PIDErrorPre = PID(0, 2, 0, RESIDUAL_THRESHOLD, residual, DATA.PIDErrorSum, DATA.PIDErrorPre, -1, 2)
+        PIDControl, data[ID].PIDErrorSum, data[ID].PIDErrorPre = PID(0, PID_I, 0, RESIDUAL_THRESHOLD, residual, DATA.PIDErrorSum, DATA.PIDErrorPre, -3, 3)
 
         PHI = 10^-(8 + PIDControl)
 
@@ -587,6 +587,12 @@ function onTick()
             return dataSRD[priority].x, dataSRD[priority].y, dataSRD[priority].z
         end
 
+        function world2RadarXY(Wx, Wy, Wz)  --ワールド座標からレーダージンバル方向へ
+            local Lx, Ly, Lz = rotation.world2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
+            local _, radarX, radarY = rect2Polar(Lx, Ly, Lz, false)
+            return radarX, radarY
+        end
+
 
         --到達時間計算、最脅威決定
         local minID, minT = 0, math.huge
@@ -602,49 +608,36 @@ function onTick()
         
         --スタンバイ
         if minID == 0 then
-            if dataSRD[1] and dataSRD[2] then   --第一脅威、第二脅威ともに検出
-                local x, y, z, residual
-
-                --レーダーが向いてる方向と第一脅威の方向の差(視野内にいるか)
-                x, y, z = returnSRD(1)
-                x, y, z = rotation.world2Local(x, y, z, Px, Py, Pz, Ex, Ey, Ez)
-                _, x, y = rect2Polar(x, y, z, false)
-                residual = math.abs(x - radarGimbalX[1])
-
-                if residual < 0.04/2 then       --視野内に第一脅威がいるはずなのに検出なし
-                    Wx, Wy, Wz = returnSRD(2)
-                else                            --第一脅威が視野内ではない
+            if dataSRD[1] or dataSRD[2] then
+                if dataSRD[1] then      --第一脅威を検出
                     Wx, Wy, Wz = returnSRD(1)
+                elseif dataSRD[2] then  --第二脅威のみ検出
+                    Wx, Wy, Wz = returnSRD(2)
                 end
-            elseif dataSRD[1] then              --第一脅威のみ検出
-                Wx, Wy, Wz = returnSRD(1)
-            else                                --第二脅威のみ検出
-                Wx, Wy, Wz = returnSRD(2)
+                radarX, radarY = world2RadarXY(Wx, Wy, Wz)
+                radarOn = true
             end
-
-            local Lx, Ly, Lz = rotation.world2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
-            _, radarX, radarY = rect2Polar(Lx, Ly, Lz, false)
-            radarOn = true
         else    --検出中は追尾レーダー第一脅威を追尾
             local DATA = data[minID].x
             Wx, Wy, Wz = DATA[1][1], DATA[4][1], DATA[7][1]
+            radarX, radarY = world2RadarXY(Wx, Wy, Wz)
             radarOn = true
         end
 
-        --明らかやばい脅威
-        if (dataSRD[1] and minID ~= 0) and (dataSRD[1].t < minT - 300) then
+        --明らかにやばい脅威
+        if (dataSRD[1] and minID ~= 0) and (dataSRD[1].t < minT - MORE_THREAT_TICK) then
             Wx, Wy, Wz = returnSRD(1)
-            local Lx, Ly, Lz = rotation.world2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
-            _, radarX, radarY = rect2Polar(Lx, Ly, Lz, false)
+            radarX, radarY = world2RadarXY(Wx, Wy, Wz)
+            radarOn = true
         end
-
-        isConvergence = isTRdetected and (data[minID].t > CONVERGENCE_TICK) --収束している
 
         --砲制御
         if minID ~= 0 then
             local DATA = data[minID].current
             TRD1X, TRD1Y, TRD1Z, TRD1Vx, TRD1Vy, TRD1Vz, TRD1Ax, TRD1Ay, TRD1Az = DATA.x, DATA.y, DATA.z, DATA.vx, DATA.vy, DATA.vz, DATA.ax, DATA.ay, DATA.az
-            if isConvergence then
+            inTick = minT < INTERCEPT_TICK                      --到達時間が規定以下
+            isConvergence = data[minID].t > CONVERGENCE_TICK    --収束している
+            if isConvergence and inTick then
                 TRD1Exists = true
             else
                 directAimEnable = true
@@ -682,10 +675,6 @@ function onTick()
             _, radarX, radarY = rect2Polar(Lx, Ly, Lz, false)
         end
     end
-
-    --レーダージンバルの現在方向記録
-    table.insert(radarGimbalX, radarX)
-    table.remove(radarGimbalX, 1)
 
     OUB(1, TRD1Exists)
     OUB(2, radarOn)
