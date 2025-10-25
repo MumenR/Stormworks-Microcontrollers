@@ -399,6 +399,7 @@ function calClosingSpeed(Tx, Ty, Tz, Tvx, Tvy, Tvz)
 end
 
 dataSRD = {}
+radarGimbalX = {0, 0, 0, 0, 0}
 function onTick()
 
     --PHI = INN(19)
@@ -439,10 +440,9 @@ function onTick()
             table.insert(newTGT, {dist = dist, yaw = yaw, pitch = pitch, Lx = Lx, Ly = Ly, Lz = Lz})
         end
     end
-    --dataSRD[迎撃優先順位] = {x, y, z, ID, t = 到達時間, tElapsed = 経過時間, detected = TRで検出済み}
+    --dataSRD[迎撃優先順位] = {x, y, z, ID, t = 到達時間, tElapsed = 経過時間}
     if INN(31) > 0 then
         local ID, priority = INN(31)%1000, math.floor(INN(31)/1000)
-        local detected = (dataSRD[priority] and dataSRD[priority].ID == ID) and dataSRD[priority].detected or false
 
         dataSRD[priority] = {
             x = INN(28),
@@ -450,8 +450,7 @@ function onTick()
             z = INN(30),
             ID = ID,
             t = INN(32),
-            tElapsed = 0,
-            detected = detected
+            tElapsed = 0
         }
     end
 
@@ -573,6 +572,22 @@ function onTick()
     directAimEnable = false
     if AutoInterceptEnable then     --自動迎撃モード(SRDか自レーダーの目標を自動選択)
 
+        --[[
+            TR制御：
+            スタンバイ状態→捜索レーダー第1脅威へ指向
+            捜索レーダー検出中→それを追尾
+            明らかにやばい脅威がいる→それに切りかえ
+            追尾レーダー反応なし→スタンバイへ
+
+            砲制御：
+            視野内で最も脅威度の高いものへ射撃
+        ]]
+        
+        function returnSRD(priority)    --SRDの座標取得関数
+            return dataSRD[priority].x, dataSRD[priority].y, dataSRD[priority].z
+        end
+
+
         --到達時間計算、最脅威決定
         local minID, minT = 0, math.huge
         for ID, DATA in pairs(data) do
@@ -584,67 +599,46 @@ function onTick()
                 minID = ID
             end
         end
+        
+        --スタンバイ
+        if minID == 0 then
+            if dataSRD[1] and dataSRD[2] then   --第一脅威、第二脅威ともに検出
+                local x, y, z, residual
 
-        --SRDとの同一判定
-        for PRIORITY, DATASRD in pairs(dataSRD) do
-            local minIDsame, minDist = 0, math.huge
-            local errorRange = 0.05*distance3(DATASRD.x, DATASRD.y, DATASRD.z, Px, Pz, Py) + SAME_VEHICLE_RADIUS + 50
-            for ID, DATA in pairs(data) do
-                local dist = distance3(DATASRD.x, DATASRD.y, DATASRD.z, DATA.x[1][1], DATA.x[4][1], DATA.x[7][1])
-                if dist < errorRange and dist < minDist then
-                    minDist = dist
-                    minIDsame = ID
-                end
-            end
+                --レーダーが向いてる方向と第一脅威の方向の差(視野内にいるか)
+                x, y, z = returnSRD(1)
+                x, y, z = rotation.world2Local(x, y, z, Px, Py, Pz, Ex, Ey, Ez)
+                _, x, y = rect2Polar(x, y, z, false)
+                residual = math.abs(x - radarGimbalX[1])
 
-            if minIDsame ~= 0 then
-                dataSRD[PRIORITY].detected = true
-                dataSRD[PRIORITY].sameExist = true
-            else
-                dataSRD[PRIORITY].sameExist = false
-            end
-        end
-
-        --[[
-            TR制御：
-            SRの第一脅威へ指向、同定済み第一脅威がTRに存在しないなら第２脅威へ指向
-
-            砲制御：
-            視野内で最も脅威度の高いものへ射撃
-        ]]
-
-        isSRDdetected = dataSRD[1] or dataSRD[2]    --SR検出
-        isTRdetected = minID ~= 0                   --TR検出
-        isConvergence = isTRdetected and (data[minID].t > CONVERGENCE_TICK) --収束している
-
-        function returnSRD(priority)
-            return dataSRD[priority].x, dataSRD[priority].y, dataSRD[priority].z
-        end
-
-        --レーダー制御
-        if isSRDdetected then
-            local Wx, Wy, Wz
-            radarOn = true
-
-            if dataSRD[1] and dataSRD[2] then  --第一脅威、第二脅威ともに検出
-                --第一脅威が検出済みにも関わらず同定されなかった場合
-                OUB(32, true)
-                OUB(31, dataSRD[1].detected)
-                OUB(30, dataSRD[1].sameExist)
-                if dataSRD[1].detected and not dataSRD[1].sameExist then
+                if residual < 0.04/2 then       --視野内に第一脅威がいるはずなのに検出なし
                     Wx, Wy, Wz = returnSRD(2)
-                else
+                else                            --第一脅威が視野内ではない
                     Wx, Wy, Wz = returnSRD(1)
                 end
-            elseif dataSRD[1] then          --第一脅威のみ検出
+            elseif dataSRD[1] then              --第一脅威のみ検出
                 Wx, Wy, Wz = returnSRD(1)
-            else                            --第二脅威のみ検出
+            else                                --第二脅威のみ検出
                 Wx, Wy, Wz = returnSRD(2)
             end
 
             local Lx, Ly, Lz = rotation.world2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
             _, radarX, radarY = rect2Polar(Lx, Ly, Lz, false)
+            radarOn = true
+        else    --検出中は追尾レーダー第一脅威を追尾
+            local DATA = data[minID].x
+            Wx, Wy, Wz = DATA[1][1], DATA[4][1], DATA[7][1]
+            radarOn = true
         end
+
+        --明らかやばい脅威
+        if (dataSRD[1] and minID ~= 0) and (dataSRD[1].t < minT - 300) then
+            Wx, Wy, Wz = returnSRD(1)
+            local Lx, Ly, Lz = rotation.world2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
+            _, radarX, radarY = rect2Polar(Lx, Ly, Lz, false)
+        end
+
+        isConvergence = isTRdetected and (data[minID].t > CONVERGENCE_TICK) --収束している
 
         --砲制御
         if minID ~= 0 then
@@ -688,6 +682,10 @@ function onTick()
             _, radarX, radarY = rect2Polar(Lx, Ly, Lz, false)
         end
     end
+
+    --レーダージンバルの現在方向記録
+    table.insert(radarGimbalX, radarX)
+    table.remove(radarGimbalX, 1)
 
     OUB(1, TRD1Exists)
     OUB(2, radarOn)
