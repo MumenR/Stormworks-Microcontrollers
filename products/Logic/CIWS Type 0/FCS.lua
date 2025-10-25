@@ -409,6 +409,7 @@ function onTick()
 
     VEHICLE_RADIUS = PRN("Vehicle radius [m]")
     OFFSET_X, OFFSET_Y, OFFSET_Z = PRN("Radar phy. offset x (m)"), PRN("Radar phy. offset y (m)"), PRN("Radar phy. offset z (m)")
+    ELI_TR_ENABLE = PRN("Use tracking radar when aiming ELI")
 
     Px, Py, Pz, Ex, Ey, Ez = INN(4), INN(8), INN(12), INN(16), INN(20), INN(21)
     Px, Pz, Py = rotation.local2World(OFFSET_X, OFFSET_Y, OFFSET_Z, Px, Py, Pz, Ex, Ey, Ez)
@@ -645,34 +646,40 @@ function onTick()
         end
 
     else                            --手動操作
-        --ELI2との同一判定
-        local minID, minDist = 0, math.huge
-        if ELI2Exist then
-            local errorRange = 0.05*distance3(ELI2X, ELI2Y, ELI2Z, Px, Pz, Py) + SAME_VEHICLE_RADIUS
-            for ID, DATA in pairs(data) do
-                local dist = distance3(ELI2X, ELI2Y, ELI2Z, DATA.x[1][1], DATA.x[4][1], DATA.x[7][1])
-                if dist < errorRange and dist < minDist then
-                    minDist = dist
-                    minID = ID
+        if ELI_TR_ENABLE then       --レーダー有効
+            --ELI2との同一判定
+            local minID, minDist = 0, math.huge
+            if ELI2Exist then
+                local errorRange = 0.05*distance3(ELI2X, ELI2Y, ELI2Z, Px, Pz, Py) + SAME_VEHICLE_RADIUS
+                for ID, DATA in pairs(data) do
+                    local dist = distance3(ELI2X, ELI2Y, ELI2Z, DATA.x[1][1], DATA.x[4][1], DATA.x[7][1])
+                    if dist < errorRange and dist < minDist then
+                        minDist = dist
+                        minID = ID
+                    end
                 end
             end
-        end
 
-        if minID ~= 0 then          --自レーダーに反応あり
-            radarOn = true
-            TRD1Exists = true
-            local DATA = data[minID].x
-            TRD1X, TRD1Y, TRD1Z, TRD1Vx, TRD1Vy, TRD1Vz, TRD1Ax, TRD1Ay, TRD1Az = DATA[1][1], DATA[4][1], DATA[7][1], DATA[2][1], DATA[5][1], DATA[8][1], DATA[3][1], DATA[6][1], DATA[9][1]
-        elseif ELI2Exist then       --ELI2にのみ反応あり
-            radarOn = true
+            if minID ~= 0 then          --自レーダーに反応あり
+                radarOn = true
+                TRD1Exists = true
+                local DATA = data[minID].x
+                TRD1X, TRD1Y, TRD1Z, TRD1Vx, TRD1Vy, TRD1Vz, TRD1Ax, TRD1Ay, TRD1Az = DATA[1][1], DATA[4][1], DATA[7][1], DATA[2][1], DATA[5][1], DATA[8][1], DATA[3][1], DATA[6][1], DATA[9][1]
+            elseif ELI2Exist then       --ELI2にのみ反応あり
+                radarOn = true
+                TRD1Exists = true
+                TRD1X, TRD1Y, TRD1Z, TRD1Vx, TRD1Vy, TRD1Vz, TRD1Ax, TRD1Ay, TRD1Az = ELI2X, ELI2Y, ELI2Z, ELI2Vx, ELI2Vy, ELI2Vz, 0, 0, 0
+            end
+
+            --レーダージンバル計算
+            if radarOn then
+                local Lx, Ly, Lz = rotation.world2Local(TRD1X, TRD1Y, TRD1Z, Px, Py, Pz, Ex, Ey, Ez)
+                _, radarX, radarY = rect2Polar(Lx, Ly, Lz, false)
+            end
+
+        else                        --レーダー無効
             TRD1Exists = true
             TRD1X, TRD1Y, TRD1Z, TRD1Vx, TRD1Vy, TRD1Vz, TRD1Ax, TRD1Ay, TRD1Az = ELI2X, ELI2Y, ELI2Z, ELI2Vx, ELI2Vy, ELI2Vz, 0, 0, 0
-        end
-
-        --レーダージンバル計算
-        if radarOn then
-            local Lx, Ly, Lz = rotation.world2Local(TRD1X, TRD1Y, TRD1Z, Px, Py, Pz, Ex, Ey, Ez)
-            _, radarX, radarY = rect2Polar(Lx, Ly, Lz, false)
         end
     end
 
