@@ -62,13 +62,6 @@ end
     }
 ]]
 
-weapon_no_to_name = {
-    [1003] = "SM 3"
-}
-
-
-
-
 
 INN = input.getNumber
 INB = input.getBool

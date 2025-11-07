@@ -279,6 +279,10 @@ function onTick()
     WP_time = INN(26)
     WP_detected = INN(27) == 1
     AP = INN(28) == 1
+    AH = INN(29) == 1
+    tgt_alt = INN(30)
+    PH = INN(31) == 1
+    RH = INN(32) == 1
 
     show_air_speed = PRB("air speed")
     show_gnd_speed = PRB("ground speed")
@@ -495,6 +499,24 @@ function onDraw()
         screen.drawText(x1 - 4 - 5*dist_max_digits, y1 - 6, "AP")
     end
 
+    --座標維持
+    if PH then
+        x1, y1 = math.floor(w/5) + 11, math.floor(3*h/5)
+        black()
+        screen.drawRectF(x1 - 5 - 5*dist_max_digits, y1 - 7, 11, 7)
+        green()
+        screen.drawText(x1 - 4 - 5*dist_max_digits, y1 - 6, "PH")
+    end
+
+    --ロール維持
+    if RH then
+        x1, y1 = math.floor(w/5) + 22, math.floor(3*h/5)
+        black()
+        screen.drawRectF(x1 - 5 - 5*dist_max_digits, y1 - 7, 11, 7)
+        green()
+        screen.drawText(x1 - 4 - 5*dist_max_digits, y1 - 6, "RH")
+    end
+
     --速度数値
     if gnd_main then
         main_speed = gnd_speed
@@ -538,6 +560,18 @@ function onDraw()
         green()
         screen.drawRect(x1 + 1 - offset, y1 + 1, 2 + 5*alt_max_digits, 8)
         screen.drawText(x1 + 3 + 1.5*offset - 5*#alt, y1 + 3, alt)
+    end
+
+    --目標高度
+    if AH then
+        x1, y1 = math.floor(4*w/5), math.floor(h/3) + 10
+        alt = string.format("%d", math.floor(tgt_alt + 0.5))
+        offset = 2*alt_max_digits
+        black()
+        screen.drawRectF(x1 - offset - 8, y1, 11 + 5*alt_max_digits, 7)
+        green()
+        screen.drawText(x1 - 7 - offset, y1 + 1, "AH")
+        screen.drawText(x1 + 3 + 1.5*offset - 5*#alt, y1 + 1, alt)
     end
 
     --対地高度数値

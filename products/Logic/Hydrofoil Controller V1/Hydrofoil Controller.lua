@@ -64,15 +64,21 @@ pitch_error_sum = 0
 pitch_error_pre = 0
 roll_error_sum = 0
 roll_error_pre = 0
+updown_error_sum = 0
+updown_error_pre = 0
 
 --PID制御
-function PID(P, I, D, target, current, error_sum, error_pre)
-    local error, error_diff, controll
+function PID(P, I, D, target, current, errorSumPre, errorPre, min, max)
     error = target - current
-    error_sum = error_sum + error
-    error_diff = error - error_pre
-    controll = P*error + I*error_sum + D*error_diff
-    return controll, error_sum, error
+    errorSum = errorSumPre + error
+    errorDiff = error - errorPre
+    controll = P*error + I*errorSum + D*errorDiff
+
+    if controll > max or controll < min then
+        errorSum = errorSumPre
+        controll = P*error + I*errorSum + D*errorDiff
+    end
+    return clamp(controll, min, max), errorSum, error
 end
 
 function onTick()
@@ -94,6 +100,9 @@ function onTick()
     pitch_P = PRN("pitch P")
     pitch_I = PRN("pitch I")
     pitch_D = PRN("pitch D")
+    updown_P = PRN("updown P")
+    updown_I = PRN("updown I")
+    updown_D = PRN("updown D")
 
     manual_yaw = INN(1)
 
@@ -108,16 +117,18 @@ function onTick()
     if speed_abs < 5 then
         roll = -roll_gain*tilt_roll/speed_denom
         pitch = -pitch_gain*tilt_pitch/speed_denom
+        updown = updown_gain*(target_alt - alt)/speed_denom
         roll_error_sum = 0
         roll_error_pre = 0
         pitch_error_sum = 0
         pitch_error_pre = 0
+        updown_error_sum = 0
+        updown_error_pre = 0
     else
-        roll, roll_error_sum, roll_error_pre = PID(roll_P, roll_I, roll_D, target_roll, tilt_roll, roll_error_sum, roll_error_pre)
-        pitch, pitch_error_sum, pitch_error_pre = PID(pitch_P, pitch_I, pitch_D, 0, tilt_pitch, pitch_error_sum, pitch_error_pre)
+        roll, roll_error_sum, roll_error_pre = PID(roll_P, roll_I, roll_D, target_roll, tilt_roll, roll_error_sum, roll_error_pre, -1, 1)
+        pitch, pitch_error_sum, pitch_error_pre = PID(pitch_P, pitch_I, pitch_D, 0, tilt_pitch, pitch_error_sum, pitch_error_pre,  -1, 1)
+        updown, updown_error_sum, updown_error_pre = PID(updown_P, updown_I, updown_D, target_alt, alt, updown_error_sum, updown_error_pre,  -1, 1)
     end
-
-    updown = updown_gain*(target_alt - alt)/speed_denom
 
     --最大最小
     roll = clamp(roll, -0.7, 0.7)

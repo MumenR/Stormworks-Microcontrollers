@@ -91,14 +91,15 @@ function onTick()
     --データ取り込み
     --data[ID]{x, y, z, t}
     for i = 0, 5 do
-        ID = INN(i*4 + 4)%10000
+        ID = INN(i*4 + 4)%1000
         if ID ~= 0 then
             data[ID] = {
                 x = INN(i*4 + 1),
                 y = INN(i*4 + 2),
                 z = INN(i*4 + 3),
                 t = 0,
-                lock_on = INN(i*4 + 4) > 100000
+                lock_on = math.floor(INN(i*4 + 4)/1000)%10 == 2,
+                IFF = math.floor(INN(i*4 + 4)/10^4)%10 == 1
             }
         end
     end
@@ -172,7 +173,9 @@ function onDraw()
         SR_map_x, SR_map_y = math.floor(SR_map_x), math.floor(SR_map_y)
         --色
         alpha = clamp(510*(delete_tick - tgt.t)/delete_tick, 0, 255)
-        if tgt.z > 50 then
+        if tgt.IFF then
+            screen.setColor(0, 0, 255, alpha)
+        elseif tgt.z > 50 then
             screen.setColor(255, 200, 0, alpha)
         else
             screen.setColor(0, 200, 255, alpha)

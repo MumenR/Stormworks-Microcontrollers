@@ -43,7 +43,6 @@ PRB = property.getBool
 
 data = {}
 pi2 = math.pi*2
-fov_w = (73/360)*pi2
 fov_h = (58/360)*pi2
 
 function distance3(x1, y1, z1, x2, y2, z2)
@@ -83,7 +82,7 @@ end
 --ローカル座標からディスプレイ座標へ変換
 function Local2Display(Lx, Ly, Lz)
     local Dx, Dy, drawable
-    Dx = w/2 + (Lx/Ly)*(w/2)/math.tan(fov_w/2)
+    Dx = w/2 + (Lx/Ly)*(h/2)/math.tan(fov_h/2)
     Dy = h/2 - (Lz/Ly)*(h/2)/math.tan(fov_h/2)
     drawable = Ly > 0
     return Dx, Dy, drawable

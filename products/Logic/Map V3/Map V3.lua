@@ -296,6 +296,10 @@ function onTick()
     key_pulse = INB(4)
     AP_push = INB(5)
 
+    showZoomScale = PRB("Zoom scale")
+    showZoomLever = PRB("Zoom lever")
+    showWPInfo = PRB("Waypoint info.")
+
     my_location = false
     WP_clear = false
     WP_back = false
@@ -344,6 +348,10 @@ function onTick()
                 if not touch_1_pulse and #WP > 1 then
                     table.remove(WP, #WP)
                 end
+            --ズームレバー
+            elseif touch_x >= w - 6 and touch_y > h/4 and touch_y < h*3/4 and showZoomLever then
+                touch_t1 = 0
+                zoom_manual = 1 - (touch_y - h/4)/(h/2)
             --２タップ、ウェイポイント追加
             elseif touch_t2 <= tap_tick and touch_t2 > 0 and touch_t1 > 0 then
                 if not touch_1_pulse then
@@ -491,8 +499,10 @@ function onDraw()
         end
 
         --距離
-        screen.setColor(0, 255, 0)
-        screen.drawText(1, 1, "WP:"..WP_dist_text)
+        if showWPInfo then
+            screen.setColor(0, 255, 0)
+            screen.drawText(1, 1, "WP:"..WP_dist_text)
+        end
     end
 
     --ビークルマーカー
@@ -534,12 +544,25 @@ function onDraw()
         screen.drawText(3 + 9*i, h-6 ,list[i + 1])
     end
 
+    --ズームバー
+    if showZoomLever then
+        screen.setColor(0, 255, 0)
+        screen.drawLine(w - 4, h/4, w - 4, h*3/4)
+        screen.drawLine(w - 6, (1 - zoom_manual)*(h/2) + h/4, w - 1, (1 - zoom_manual)*(h/2) + h/4)
+        screen.drawText(w - 5, h/4 - 5, "+")
+        screen.drawText(w - 5, h*3/4 + 1, "-")
+    end
+
+
     --縮尺
-    screen.setColor(0, 255, 0)
-    drawScale(zoom, w, h, unitL, unitL_txt, unitS, unitS_txt)
+    if showZoomScale then
+        screen.setColor(0, 255, 0)
+        drawScale(zoom, w, h, unitL, unitL_txt, unitS, unitS_txt)
+    end
+
 
     --オートパイロット表示
-    if AP then
+    if AP and showWPInfo then
         screen.setColor(0, 255, 0)
         screen.drawText(w - 11, 1, "AP")
         WP_time_txt = clock(WP_time)

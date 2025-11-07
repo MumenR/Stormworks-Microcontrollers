@@ -46,6 +46,7 @@ INB = input.getBool
 OUN = output.setNumber
 OUB = output.setBool
 PRN = property.getNumber
+PRB = property.getBool
 pi2 = math.pi*2
 
 CAM_RAD_MIN = 0.025/2
@@ -409,7 +410,7 @@ function onTick()
 
     VEHICLE_RADIUS = PRN("Vehicle radius [m]")
     OFFSET_X, OFFSET_Y, OFFSET_Z = PRN("Radar phy. offset x (m)"), PRN("Radar phy. offset y (m)"), PRN("Radar phy. offset z (m)")
-    ELI_TR_ENABLE = PRN("Use tracking radar when aiming ELI")
+    ELI_TR_ENABLE = PRB("Use tracking radar when aiming ELI")
 
     Px, Py, Pz, Ex, Ey, Ez = INN(4), INN(8), INN(12), INN(16), INN(20), INN(21)
     Px, Pz, Py = rotation.local2World(OFFSET_X, OFFSET_Y, OFFSET_Z, Px, Py, Pz, Ex, Ey, Ez)
@@ -678,7 +679,7 @@ function onTick()
             end
 
         else                        --レーダー無効
-            TRD1Exists = true
+            TRD1Exists = ELI2Exist
             TRD1X, TRD1Y, TRD1Z, TRD1Vx, TRD1Vy, TRD1Vz, TRD1Ax, TRD1Ay, TRD1Az = ELI2X, ELI2Y, ELI2Z, ELI2Vx, ELI2Vy, ELI2Vz, 0, 0, 0
         end
     end

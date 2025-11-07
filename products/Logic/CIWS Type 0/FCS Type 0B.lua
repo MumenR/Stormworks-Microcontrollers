@@ -46,29 +46,27 @@ INB = input.getBool
 OUN = output.setNumber
 OUB = output.setBool
 PRN = property.getNumber
+PRB = property.getBool
 pi2 = math.pi*2
 
 CAM_RAD_MIN = 0.025/2
 CAM_RAD_MAX = 2.2/2
 dt = 1
-TRD1_DELAY = 11             --レーダーのノードによる遅延補正用
-EKF_CONVERGENCE_TICK = 15   --収束までの時間
+TRD1_DELAY = 2              --レーダーのノードによる遅延補正用
 ELI3_TICK = 30              --ELI3による強制制御が有効になる時間
 MIN_ERROR = 50              --目標同定用の最小マハラノビス距離
-SAME_VEHICLE_RADIUS = 15    --同一目標合成用のビークル半径[m]
-RESIDUAL_THRESHOLD = 0.27   --可変Qの、残差平方和*100の閾値
+SAME_VEHICLE_RADIUS = 30    --同一目標合成用のビークル半径[m]
+RESIDUAL_THRESHOLD = 0.75   --可変Qの、残差平方和*100の閾値
+CONVERGENCE_TICK = 10       --収束判定用の経過時間
+ALPHA = 1.02                --減衰記憶フィルタの係数
+PID_I = 5                   --可変QのI制御値
 
-ALPHA = 1.01                --減衰記憶フィルタの係数
+MORE_THREAT_TICK = 180      --捜索レーダーよりも優先すべき脅威の到達時間(捜索レーダーよりこのチックぶん脅威が高いと即時切り替え)
+INTERCEPT_TICK = 3600       --迎撃開始チック
 
 MAX_V = 300/60              --m/tick
 MAX_A = 300/3600            --m/tick*tick
 data = {}
-
-laserOffset = {
-    Lx = 0,
-    Ly = 0,
-    Lz = -0.5
-}
 
 --行列演算ライブラリ
 matrix = {
@@ -241,7 +239,7 @@ EKF = {
         Wx, Wy, Wz = rotation.local2World(newTarget.Lx, newTarget.Ly, newTarget.Lz, Px, Py, Pz, Ex, Ey, Ez)
         return {
             x = matrix.transpose({{Wx, 0, 0, Wy, 0, 0, Wz, 0, 0}}),
-            P = matrix.diag({{(newTarget.dist*0.02)^2/60}}, 9),
+            P = matrix.diag({{(newTarget.dist*0.02)^2/12}}, 9),
             current = {x = Wx, y = Wy, z = Wz, vx = 0, vy = 0, vz = 0, ax = 0, ay = 0, az = 0},
             y = matrix.transpose({{0, 0, 0}}),
             z = matrix.transpose({{newTarget.dist, newTarget.yaw, newTarget.pitch}}),
@@ -249,7 +247,7 @@ EKF = {
             tOut = math.huge,
             isUpdate = true,
             PIDErrorPre = 0,
-            PIDErrorSum = 0
+            PIDErrorSum = 0,
         }
     end,
 
@@ -315,8 +313,8 @@ EKF = {
         hx = matrix.transpose({{r, math.atan(Lx, Ly), math.asin(Lz/r)}})
         z = matrix.transpose({{newTarget.dist, newTarget.yaw, newTarget.pitch}})
         y = matrix.sub(z, hx)
-        R = matrix.diag({{(pi2*0.002)^2/60}}, 3)
-        R[1][1] = (newTarget.dist*0.02)^2/60
+        R = matrix.diag({{(pi2*0.002)^2/12}}, 3)
+        R[1][1] = (newTarget.dist*0.02)^2/12
         K = matrix.mul(matrix.mul(predictData.P, matrix.transpose(H)), matrix.inv(matrix.add(matrix.mul(matrix.mul(H, predictData.P), matrix.transpose(H)), R)))
         x = matrix.add(predictData.x, matrix.mul(K, y))
         P = matrix.mul(matrix.sub(I, matrix.mul(K, H)), predictData.P)
@@ -373,29 +371,6 @@ function clamp(x, min, max)
     return x
 end
 
---カメラズーム変換(FOVはラジアン, 出力：0-1の制御用値, 描画計算用FOVラジアン値)
-function calZoom(zoomManual, MIN_FOV, MAX_FOV)
-    --入力値をラジアンに線形変換
-    zoomRadManual = (CAM_RAD_MIN - CAM_RAD_MAX)*zoomManual + CAM_RAD_MAX
-    
-    --線形ラジアンを非線形に変換
-    a = math.log(math.tan(MIN_FOV)/math.tan(MAX_FOV))/(CAM_RAD_MIN - CAM_RAD_MAX)
-    C = math.log(math.tan(MIN_FOV)) - CAM_RAD_MIN*a
-    zoomRadCaled = math.atan(math.exp(a*zoomRadManual + C))
-
-    --計算後ラジアンを制御用値(0-1)に変換
-    return (zoomRadCaled - CAM_RAD_MAX)/(CAM_RAD_MIN- CAM_RAD_MAX), zoomRadCaled
-end
-
-function distance2Sring(x)
-    if x >= 10 then
-        x = string.format("%.0f", math.floor(x + 0.5))
-    else
-        x = string.format("%.1f", math.floor(x*10 + 0.5)/10)
-    end
-    return x
-end
-
 --PID制御
 function PID(P, I, D, target, current, errorSumPre, errorPre, min, max)
     error = target - current
@@ -410,84 +385,76 @@ function PID(P, I, D, target, current, errorSumPre, errorPre, min, max)
     return clamp(controll, min, max), errorSum, error
 end
 
-zoomManual = 0
-posDelayBuffer = {}
-pitchDelayBuffer = {}
-for i = 1, 9 do
-    table.insert(pitchDelayBuffer, 0)
+--対向速度と到達時間(近づくなら正)
+Pvx, Pvy, Pvz = 0, 0, 0
+function calClosingSpeed(Tx, Ty, Tz, Tvx, Tvy, Tvz)
+    local Lx, Ly, Lz, Lvx, Lvy, Lvz, dist, cv, ct
+    Lx, Ly, Lz = rotation.world2Local(Tx, Ty, Tz, Px, Py, Pz, Ex, Ey, Ez)
+    Lvx, Lvy, Lvz = rotation.world2Local(Tvx, Tvy, Tvz, 0, 0, 0, Ex, Ey, Ez)
+    Lvx, Lvy, Lvz = Lvx - Pvx, Lvy - Pvz, Lvz - Pvy
+    dist = math.sqrt(Lx^2 + Ly^2 + Lz^2)
+    --対向速度
+    cv = -(Lvx*Lx + Lvy*Ly + Lvz*Lz)/dist
+    --到達時間
+    ct = cv > 0 and clamp(dist/cv, 0, math.huge) or math.huge
+    return cv, ct
 end
-laserPulse = false
-autoaimPulse = false
-TRD1ID = 0
-ELI3t = math.huge
-laserWx, laserWy, laserWz = 0, 0, 0
 
+dataSRD = {}
 function onTick()
 
+    --PHI = INN(19)
+    OUB(32, false)
+    OUB(31, false)
+    OUB(30, false)
+
     VEHICLE_RADIUS = PRN("Vehicle radius [m]")
-    RADAR_FOV = PRN("Radar fov")
-    DIST_UNIT = PRN("Distance Units")
-    SPEED_UNIT = PRN("Speed Units")
+    OFFSET_X, OFFSET_Y, OFFSET_Z = PRN("Radar phy. offset x (m)"), PRN("Radar phy. offset y (m)"), PRN("Radar phy. offset z (m)")
+    ELI_TR_ENABLE = PRB("Use tracking radar when aiming ELI")
 
-    laserDist = INN(28)
-    seatQE = INN(29)
+    Px, Py, Pz, Ex, Ey, Ez = INN(4), INN(8), INN(12), INN(16), INN(20), INN(21)
+    Px, Pz, Py = rotation.local2World(OFFSET_X, OFFSET_Y, OFFSET_Z, Px, Py, Pz, Ex, Ey, Ez)
 
-    power = INB(9)
-    autoaimEnabled = INB(10)
-    laserEnabled = INB(11)
-    ELI3Exists = INB(12)
-    if ELI3Exists then
-        ELI3t = 0
-    end
+    AutoInterceptEnable = INB(12)
 
-    --ズーム計算
-    MIN_FOV = PRN("Cam min fov [rad]")/2
-    MAX_FOV = PRN("Cam max fov [rad]")/2
-    ZOOM_GAIN = PRN("Zoom speed gain")
-    if power then
-        if seatQE == -1 and zoomManual > 0 then
-            zoomManual = zoomManual - 0.01*ZOOM_GAIN
-        elseif seatQE == 1 and zoomManual < 1 then
-            zoomManual = zoomManual + 0.01*ZOOM_GAIN
+    ELI2Exist = INB(13)
+    ELI2X, ELI2Y, ELI2Z, ELI2Vx, ELI2Vy, ELI2Vz = INN(22), INN(23), INN(24), INN(25), INN(26), INN(27)
+    TRD1AxIn, TRD1AyIn, TRD1AzIn = INN(17), INN(18), INN(19)
+
+    --dataSRD時間経過と削除
+    for ID, DATA in pairs(dataSRD) do
+        DATA.tElapsed = DATA.tElapsed + 1
+        if dataSRD[ID].tElapsed > 3 then
+            dataSRD[ID] = nil
         end
-    else
-        zoomManual = 0
     end
-    zoomCaled, zoomRadCaled = calZoom(zoomManual, MIN_FOV, MAX_FOV)
-
-    --フィジックス情報取り込み
-    --遅延生成
-    nowPx, nowPy, nowPz, nowEx, nowEy, nowEz = INN(22), INN(23), INN(24), INN(25), INN(26), INN(27)
-    table.insert(posDelayBuffer, {nowPx, nowPy, nowPz, nowEx, nowEy, nowEz})
-    table.insert(pitchDelayBuffer, INN(30))
-    while #posDelayBuffer > 7  do
-        table.remove(posDelayBuffer, 1)
-    end
-    while #pitchDelayBuffer > 9  do
-        table.remove(pitchDelayBuffer, 1)
-    end
-    Px = posDelayBuffer[1][1]
-    Py = posDelayBuffer[1][2]
-    Pz = posDelayBuffer[1][3]
-    Ex = posDelayBuffer[1][4]
-    Ey = posDelayBuffer[1][5]
-    Ez = posDelayBuffer[1][6]
-    camPitch = pitchDelayBuffer[7]*pi2
-    laserPitch = clamp(pitchDelayBuffer[7], -0.125, 0.125)*pi2
 
     --データ取り込み
     --newTGT = {{dist, yaw, pitch, local x, local y, local z}, ...}
     newTGT = {}
-    for i = 1, 7 do
-        dist = INN(i*3 - 2)
-        yaw = INN(i*3 - 1)*pi2
-        pitch = INN(i*3 - 0)*pi2
+    for i = 1, 4 do
+        dist = INN(i*4 - 3)
+        yaw = INN(i*4 - 2)*pi2
+        pitch = INN(i*4 - 1)*pi2
         Lx, Ly, Lz = polar2Rect(dist, yaw, pitch, true)
 
         if INB(i) and dist >= VEHICLE_RADIUS then
             --追加
             table.insert(newTGT, {dist = dist, yaw = yaw, pitch = pitch, Lx = Lx, Ly = Ly, Lz = Lz})
         end
+    end
+    --dataSRD[迎撃優先順位] = {x, y, z, ID, t = 到達時間, tElapsed = 経過時間}
+    if INN(31) > 0 then
+        local ID, priority = INN(31)%1000, math.floor(INN(31)/1000)
+
+        dataSRD[priority] = {
+            x = INN(28),
+            y = INN(29),
+            z = INN(30),
+            ID = ID,
+            t = INN(32),
+            tElapsed = 0
+        }
     end
 
     --同一目標の合体
@@ -496,7 +463,7 @@ function onTick()
         if A == nil then
             break
         end
-        errorRange = (3*0.02/5)*A.dist + SAME_VEHICLE_RADIUS
+        errorRange = 0.02*A.dist + SAME_VEHICLE_RADIUS
         sameTGT = {A}
         --距離を判定される側の探索
         j = i + 1
@@ -540,9 +507,9 @@ function onTick()
 
         --自動プロセスノイズ調整(残差により変動)
         residual = 100*distance3(pi2*DATA.y[1][1]/DATA.z[1][1]/10, DATA.y[2][1], DATA.y[3][1], 0, 0, 0)
-        PIDControl, data[ID].PIDErrorSum, data[ID].PIDErrorPre = PID(0, 0.5, 0, RESIDUAL_THRESHOLD, residual, DATA.PIDErrorSum, DATA.PIDErrorPre, -2.5, 3)
+        PIDControl, data[ID].PIDErrorSum, data[ID].PIDErrorPre = PID(0, PID_I, 0, RESIDUAL_THRESHOLD, residual, DATA.PIDErrorSum, DATA.PIDErrorPre, -3, 3)
 
-        PHI = 10^-(10 + PIDControl)
+        PHI = 10^-(8 + PIDControl)
 
         --予測値の更新、マハラノビス距離用に共分散行列、平均ベクトルの変換
         mean, var, predict = {}, {}, EKF.predict(DATA, dt, PHI)
@@ -567,7 +534,7 @@ function onTick()
 
         --規定以下ならデータ追加、EKF更新
         if newTGT[minIndex] ~= nil then
-            error = (MAX_A*dt*dt/2 + MAX_V*dt + (3*0.02/5)*newTGT[minIndex].dist)*3 + MIN_ERROR
+            error = (MAX_A*dt*dt/2 + MAX_V*dt + 0.02*newTGT[minIndex].dist)*15 + MIN_ERROR
             if minDist < error then
                 data[ID] = EKF.update(predict, newTGT[minIndex])
                 newTGT[minIndex] = nil
@@ -600,176 +567,145 @@ function onTick()
         end
     end
 
-    --画面中央に最も近い目標の選択
-    minID, minDist, dataNum = 0, math.huge, 0
-    for ID, DATA in pairs(data) do
-        dataNum = dataNum + 1
-        Lx, Ly, Lz = rotation.world2Local(DATA.x[1][1], DATA.x[4][1], DATA.x[7][1], Px, Py, Pz, Ex, Ey, Ez)
-        Lx, Ly, Lz = rotation.world2Local(Lx, Ly, Lz, 0, 0, 0, -camPitch, 0, 0)
-        dist = math.sqrt(Lx^2 + Lz^2)/Ly
-        if dist < minDist then
-            minID = ID
-            minDist = dist
-        end
-    end
-
-    TRD1Exists = (laserEnabled and laserDist ~= 0 and laserDist ~= 4000 or (laserWx ~= 0 and autoaimEnabled)) or (not laserEnabled and dataNum > 0)
-
-    --ELI3モード
-    if ELI3t <= ELI3_TICK then
-        ELI3t = ELI3t + 1
-        TRD1ID = minID
-        laserPulse = false
-    end
-
     --出力値決定
+    radarOn = false
+    radarX, radarY = 0, 0
     TRD1X, TRD1Y, TRD1Z, TRD1Vx, TRD1Vy, TRD1Vz, TRD1Ax, TRD1Ay, TRD1Az = 0, 0, 0, 0, 0, 0, 0, 0, 0
-    if laserEnabled then
-        --レーザー
-        if laserDist ~= 0 and laserDist ~= 4000 and (not autoaimEnabled or not laserPulse or laserWx == 0) then
-            offsetPx, offsetPz, offsetPy = rotation.local2World(laserOffset.Lx, laserOffset.Ly, laserOffset.Lz, nowPx, nowPy, nowPz, nowEx, nowEy, nowEz)
-            Lx, Ly, Lz = polar2Rect(laserDist, 0, laserPitch, true)
-            laserWx, laserWy, laserWz = rotation.local2World(Lx, Ly, Lz, offsetPx, offsetPy, offsetPz, nowEx, nowEy, nowEz)
-        end
-        TRD1X, TRD1Y, TRD1Z = laserWx, laserWy, laserWz
-        TRD1ID = 0
-        if not autoaimEnabled then
-            laserWx, laserWy, laserWz = 0, 0, 0
-        end
-    elseif TRD1Exists then
-        --レーダー
-        if not autoaimEnabled or not autoaimPulse then
-            TRD1ID = minID
+    TRD1Exists = false
+    directAimEnable = false
+    if AutoInterceptEnable then     --自動迎撃モード(SRDか自レーダーの目標を自動選択)
+
+        --[[
+            TR制御：
+            スタンバイ状態→捜索レーダー第1脅威へ指向
+            捜索レーダー検出中→それを追尾
+            明らかにやばい脅威がいる→それに切りかえ
+            追尾レーダー反応なし→スタンバイへ
+
+            砲制御：
+            視野内で最も脅威度の高いものへ射撃
+        ]]
+        
+        function returnSRD(priority)    --SRDの座標取得関数
+            return dataSRD[priority].x, dataSRD[priority].y, dataSRD[priority].z
         end
 
-        if data[TRD1ID] ~= nil then
-            if data[TRD1ID].t > EKF_CONVERGENCE_TICK then
-                current = data[TRD1ID].current
-                TRD1X, TRD1Y, TRD1Z, TRD1Vx, TRD1Vy, TRD1Vz, TRD1Ax, TRD1Ay, TRD1Az = current.x, current.y, current.z, current.vx, current.vy, current.vz, current.ax, current.ay, current.az
-            else
-                TRD1Exists = false
+        function world2RadarXY(Wx, Wy, Wz)  --ワールド座標からレーダージンバル方向へ
+            local Lx, Ly, Lz = rotation.world2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
+            local _, radarX, radarY = rect2Polar(Lx, Ly, Lz, false)
+            return radarX, radarY
+        end
+
+
+        --到達時間計算、最脅威決定
+        local minID, minT = 0, math.huge
+        for ID, DATA in pairs(data) do
+            local x, y, z, vx, vy, vz = DATA.x[1][1], DATA.x[4][1], DATA.x[7][1], DATA.x[2][1], DATA.x[5][1], DATA.x[8][1]
+            local cv, ct = calClosingSpeed(x, y, z, vx, vy, vz)
+
+            if ct < minT then
+                minT = ct
+                minID = ID
             end
-        else
-            TRD1Exists = false
         end
-        laserWx, laserWy, laserWz = 0, 0, 0
-    else
-        TRD1ID = 0
-        laserWx, laserWy, laserWz = 0, 0, 0
-    end
-    laserPulse = laserEnabled
-    autoaimPulse = TRD1Exists and autoaimEnabled and not laserEnabled
+        
+        --スタンバイ
+        if minID == 0 then
+            if dataSRD[1] or dataSRD[2] then
+                if dataSRD[1] then      --第一脅威を検出
+                    Wx, Wy, Wz = returnSRD(1)
+                elseif dataSRD[2] then  --第二脅威のみ検出
+                    Wx, Wy, Wz = returnSRD(2)
+                end
+                radarX, radarY = world2RadarXY(Wx, Wy, Wz)
+                radarOn = true
+            end
+        else    --検出中は追尾レーダー第一脅威を追尾
+            local DATA = data[minID].x
+            Wx, Wy, Wz = DATA[1][1], DATA[4][1], DATA[7][1]
+            radarX, radarY = world2RadarXY(Wx, Wy, Wz)
+            radarOn = true
+        end
 
-    --0or1変換
-    TRD1ExistsNum = 0
-    if TRD1Exists then
-        TRD1ExistsNum = 1
+        --明らかにやばい脅威
+        if (dataSRD[1] and minID ~= 0) and (dataSRD[1].t < minT - MORE_THREAT_TICK) then
+            Wx, Wy, Wz = returnSRD(1)
+            radarX, radarY = world2RadarXY(Wx, Wy, Wz)
+            radarOn = true
+        end
+
+        --砲制御
+        if minID ~= 0 then
+            local DATA = data[minID].current
+            TRD1X, TRD1Y, TRD1Z, TRD1Vx, TRD1Vy, TRD1Vz, TRD1Ax, TRD1Ay, TRD1Az = DATA.x, DATA.y, DATA.z, DATA.vx, DATA.vy, DATA.vz, DATA.ax, DATA.ay, DATA.az
+            inTick = minT < INTERCEPT_TICK                      --到達時間が規定以下
+            isConvergence = data[minID].t > CONVERGENCE_TICK    --収束している
+            if isConvergence and inTick then
+                TRD1Exists = true
+            else
+                directAimEnable = true
+            end
+        end
+
+    else                            --手動操作
+        if ELI_TR_ENABLE then       --レーダー有効
+            --ELI2との同一判定
+            local minID, minDist = 0, math.huge
+            if ELI2Exist then
+                local errorRange = 0.05*distance3(ELI2X, ELI2Y, ELI2Z, Px, Pz, Py) + SAME_VEHICLE_RADIUS
+                for ID, DATA in pairs(data) do
+                    local dist = distance3(ELI2X, ELI2Y, ELI2Z, DATA.x[1][1], DATA.x[4][1], DATA.x[7][1])
+                    if dist < errorRange and dist < minDist then
+                        minDist = dist
+                        minID = ID
+                    end
+                end
+            end
+
+            if minID ~= 0 then          --自レーダーに反応あり
+                radarOn = true
+                TRD1Exists = true
+                local DATA = data[minID].x
+                TRD1X, TRD1Y, TRD1Z, TRD1Vx, TRD1Vy, TRD1Vz, TRD1Ax, TRD1Ay, TRD1Az = DATA[1][1], DATA[4][1], DATA[7][1], DATA[2][1], DATA[5][1], DATA[8][1], DATA[3][1], DATA[6][1], DATA[9][1]
+            elseif ELI2Exist then       --ELI2にのみ反応あり
+                radarOn = true
+                TRD1Exists = true
+                TRD1X, TRD1Y, TRD1Z, TRD1Vx, TRD1Vy, TRD1Vz, TRD1Ax, TRD1Ay, TRD1Az = ELI2X, ELI2Y, ELI2Z, ELI2Vx, ELI2Vy, ELI2Vz, TRD1AxIn, TRD1AyIn, TRD1AzIn
+            end
+
+            --レーダージンバル計算
+            if radarOn then
+                local Lx, Ly, Lz = rotation.world2Local(TRD1X, TRD1Y, TRD1Z, Px, Py, Pz, Ex, Ey, Ez)
+                _, radarX, radarY = rect2Polar(Lx, Ly, Lz, false)
+            end
+
+        else                        --レーダー無効
+            TRD1Exists = ELI2Exist
+            TRD1X, TRD1Y, TRD1Z, TRD1Vx, TRD1Vy, TRD1Vz, TRD1Ax, TRD1Ay, TRD1Az = ELI2X, ELI2Y, ELI2Z, ELI2Vx, ELI2Vy, ELI2Vz, TRD1AxIn, TRD1AyIn, TRD1AzIn
+        end
     end
 
     OUB(1, TRD1Exists)
-    OUN(1, TRD1X)
-    OUN(2, TRD1Y)
-    OUN(3, TRD1Z)
-    OUN(4, TRD1Vx)
-    OUN(5, TRD1Vy)
-    OUN(6, TRD1Vz)
-    OUN(7, TRD1Ax)
-    OUN(8, TRD1Ay)
-    OUN(9, TRD1Az)
-    OUN(10, TRD1ExistsNum)
-    OUN(11, zoomRadCaled)
-    OUN(12, zoomCaled)
+    OUB(2, radarOn)
+    OUB(3, directAimEnable)
 
-    --SRD2出力リセット
-    for i = 13, 32 do
-        OUN(i, 0)
-    end
+    OUN(1, radarX)
+    OUN(2, radarY)
 
-    --最も最後に出力した値からSRD3出力
-    for i = 4, 8 do
-        --tOut 最大値探索
-        maxT, maxID = 0, 0
-        for ID, DATA in pairs(data) do
-            if DATA.tOut > maxT then
-                maxT = DATA.tOut
-                maxID = ID
-            end
-        end
-        --出力
-        if maxID ~= 0 then
-            OUN(i*4 - 3, data[maxID].current.x)
-            OUN(i*4 - 2, data[maxID].current.y)
-            OUN(i*4 - 1, data[maxID].current.z)
+    OUN(3, TRD1X)
+    OUN(4, TRD1Y)
+    OUN(5, TRD1Z)
+    OUN(6, TRD1Vx)
+    OUN(7, TRD1Vy)
+    OUN(8, TRD1Vz)
+    OUN(9, TRD1Ax)
+    OUN(10, TRD1Ay)
+    OUN(11, TRD1Az)
 
-            if maxID == TRD1ID then
-                OUN(i*4, maxID + 2*10^3)
-            else
-                OUN(i*4, maxID)
-            end
-            data[maxID].tOut = 0
-        end
-    end
-end
+    OUB(9, INB(9))
+    OUB(10, INB(10))
+    OUB(11, INB(11))
 
-function onDraw()
-    w = screen.getWidth()
-    h = screen.getHeight()
-    fovH = 2*zoomRadCaled
-
-    screen.setColor(0, 255, 0)
-
-    --[[
-    --レーダー反応描画(生データ)
-    for _, tgt in pairs(newTGTDraw) do
-        Lx, Ly, Lz = rotation.world2Local(tgt.Lx, tgt.Ly, tgt.Lz, 0, 0, 0, -pitchDelayBuffer[1]*pi2, 0, 0)
-        x1, y1, drawable1 = math.floor(w/2 + Lx*w/Ly/2/math.tan(fovW/2)), math.floor(h/2 - Lz*h/Ly/2/math.tan(fovH/2)), Ly > 0
-        if drawable1 then
-            --円
-            screen.drawCircle(x1, y1, 4)
-        end
-    end
-    ]]
-
-    --ロックオン情報
-    if TRD1Exists then
-        screen.drawText(1, 1, "LOCK ON")
-        screen.drawText(1, 7, "ID="..TRD1ID)
-        screen.drawText(1, 13, "D="..distance2Sring(DIST_UNIT*distance3(TRD1X, TRD1Y, TRD1Z, nowPx, nowPz, nowPy)))
-        screen.drawText(1, 19, "V="..distance2Sring(SPEED_UNIT*60*distance3(TRD1Vx, TRD1Vy, TRD1Vz, 0, 0, 0)))
-    end
-
-    --レーダー反応描画(フィルタリング)
-    for ID, tgt in pairs(data) do
-        predictDraw = EKF.predict(tgt, 5, 0)
-        Lx, Ly, Lz = rotation.world2Local(predictDraw.x[1][1], predictDraw.x[4][1], predictDraw.x[7][1], nowPx, nowPy, nowPz, nowEx, nowEy, nowEz)
-        Lx, Ly, Lz = rotation.world2Local(Lx, Ly, Lz, 0, 0, 0, -camPitch, 0, 0)
-        x1, y1, drawable1 = math.floor(w/2 + Lx*h/Ly/2/math.tan(fovH/2)), math.floor(h/2 - Lz*h/Ly/2/math.tan(fovH/2)), Ly > 0
-        
-        if drawable1 then
-            --四角
-            screen.drawRect(x1 - 4, y1 - 4, 8, 8)
-
-            --菱形
-            if TRD1ID == ID then
-                screen.drawLine(x1 - 4, y1, x1, y1 + 4)
-                screen.drawLine(x1, y1 + 4, x1 + 4, y1)
-                screen.drawLine(x1 + 4, y1, x1, y1 - 4)
-                screen.drawLine(x1, y1 - 4, x1 - 4, y1)
-            end
-
-            --ID
-            stringID = tostring(ID)
-            screen.drawText(x1 + 1 - 2.5*#stringID, y1 - 10, stringID)
-
-            --距離数値
-            dist = distance2Sring(distance3(Lx, Ly, Lz, 0, 0, 0)*DIST_UNIT)
-            screen.drawText(x1 + 1 - 2.5*#dist, y1 + 6, dist)
-        end
-    end
-
-    --レーダーFOV表示
-    x2 = math.floor(h*math.tan(pi2*RADAR_FOV/2)/math.tan(fovH/2))
-    x1 = math.floor(w/2 - x2/2)
-    y1 = math.floor(h/2 - x2/2)
-    screen.drawRect(x1, y1, x2, x2)
+    --debug
+    OUN(31, #data)
 end
