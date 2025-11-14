@@ -25,6 +25,10 @@
 			"path": "products/Logic/Ballistic Calculator V4"
 		},
 		{
+			"name": "Ballistic Calculator V5",
+			"path": "products/Logic/Ballistic Calculator V5"
+		},
+		{
 			"name": "Battery Remaining V1",
 			"path": "products/Logic/Battery Remaining V1"
 		},
@@ -47,6 +51,10 @@
 		{
 			"name": "Configurable HUD v3.3",
 			"path": "products/Logic/Configurable HUD v3.3"
+		},
+		{
+			"name": "Damege Controller V1",
+			"path": "products/Logic/Damege Controller V1"
 		},
 		{
 			"name": "depth survey'",
@@ -149,6 +157,10 @@
 			"path": "products/Logic/Multifunction Display V1"
 		},
 		{
+			"name": "Multifunction Display V2",
+			"path": "products/Logic/Multifunction Display V2"
+		},
+		{
 			"name": "Oxygen concentration meter V1",
 			"path": "products/Logic/Oxygen concentration meter V1"
 		},
@@ -223,10 +235,6 @@
 		{
 			"name": "VLS Mk.10",
 			"path": "products/Logic/VLS Mk.10"
-		},
-		{
-			"name": "libs",
-			"path": "libs"
 		}
 	],
 	"settings": {

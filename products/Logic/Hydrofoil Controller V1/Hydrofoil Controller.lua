@@ -125,15 +125,10 @@ function onTick()
         updown_error_sum = 0
         updown_error_pre = 0
     else
-        roll, roll_error_sum, roll_error_pre = PID(roll_P, roll_I, roll_D, target_roll, tilt_roll, roll_error_sum, roll_error_pre, -1, 1)
-        pitch, pitch_error_sum, pitch_error_pre = PID(pitch_P, pitch_I, pitch_D, 0, tilt_pitch, pitch_error_sum, pitch_error_pre,  -1, 1)
-        updown, updown_error_sum, updown_error_pre = PID(updown_P, updown_I, updown_D, target_alt, alt, updown_error_sum, updown_error_pre,  -1, 1)
+        roll, roll_error_sum, roll_error_pre = PID(roll_P, roll_I, roll_D, target_roll, tilt_roll, roll_error_sum, roll_error_pre, -0.7, 0.7)
+        pitch, pitch_error_sum, pitch_error_pre = PID(pitch_P, pitch_I, pitch_D, 0, tilt_pitch, pitch_error_sum, pitch_error_pre,  -0.7, 0.7)
+        updown, updown_error_sum, updown_error_pre = PID(updown_P, updown_I, updown_D, target_alt, alt, updown_error_sum, updown_error_pre,  -0.7, 0.7)
     end
-
-    --最大最小
-    roll = clamp(roll, -0.7, 0.7)
-    pitch = clamp(pitch, -0.7, 0.7)
-    updown = clamp(updown, -0.3, 0.3)
 
     FL = pitch - roll + updown
     FM = pitch + updown

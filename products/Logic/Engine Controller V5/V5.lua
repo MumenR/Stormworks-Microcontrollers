@@ -114,7 +114,7 @@ function onTick()
     min_battery = PRN("min battery")
     idling_rps = PRN("idling rps")
     idling_gene_rps = PRN("idling generation rps")
-    target_rps = PRN("target rps")
+    target_rps = INN(9)
     thermal_throttling_rps = PRN("thermal throttling rps")
     max_rps = PRN("max rps")
     
@@ -186,7 +186,7 @@ function onTick()
 
     --クラッチPID
     if power and throttle > 0.01 and not starter then
-        clutch_PID, clutch_error_sum, clutch_error_pre = PID(clutch_P*throttle, clutch_I*throttle, clutch_D*throttle, target_rps, engine_rps, clutch_error_sum, clutch_error_pre, -100, 0)
+        clutch_PID, clutch_error_sum, clutch_error_pre = PID(clutch_P*throttle, clutch_I*throttle, clutch_D, target_rps, engine_rps, clutch_error_sum, clutch_error_pre, -100, 0)
     else
         clutch_PID, clutch_error_sum, clutch_error_pre = 0, 0, 0
     end
