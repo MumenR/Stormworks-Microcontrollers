@@ -56,18 +56,21 @@ pi2 = math.pi*2
 --初速と風影響度
 --WI = wind influence
 V0 = 0
-WI = 0
+WIND_INFLUENCE = 0
 g = 30/3600
 ROCKET_ACL = 600/3600
+ROCKET_ACL_TICK = 60
 tick = 0
 TRD1_DELAY = 0
 STABI_DELAY = 7.45
 P = 8
 I = 0
 D = 20
+ALT_INTERVAL = 500  --数値積分の高度間隔[m]
 
 INFTY = 10000
 PIVOT_MAX_ERROR = 2 --degree
+NEWTON_ERROR = 0.01  --ニュートン法における距離誤差[m]
 
 parameter = {
     {600, 0.0005, 2400, 0.105}, --Bertha
@@ -80,248 +83,307 @@ parameter = {
     {50, 0.003, 3600, 0.125}    --Rocket Launcher
 }
 
---ローカル座標からワールド座標へ変換(physics sensor使用)
-function local2World(Lx, Ly, Lz, Px, Py, Pz, Ex, Ey, Ez)
-    local RetX, RetY, RetZ
-	RetX = math.cos(Ez)*math.cos(Ey)*Lx + (math.cos(Ez)*math.sin(Ey)*math.sin(Ex) - math.sin(Ez)*math.cos(Ex))*Lz + (math.cos(Ez)*math.sin(Ey)*math.cos(Ex) + math.sin(Ez)*math.sin(Ex))*Ly
-	RetY = math.sin(Ez)*math.cos(Ey)*Lx + (math.sin(Ez)*math.sin(Ey)*math.sin(Ex) + math.cos(Ez)*math.cos(Ex))*Lz + (math.sin(Ez)*math.sin(Ey)*math.cos(Ex) - math.cos(Ez)*math.sin(Ex))*Ly
-	RetZ = -math.sin(Ey)*Lx + math.cos(Ey)*math.sin(Ex)*Lz + math.cos(Ey)*math.cos(Ex)*Ly
-	return RetX + Px, RetZ + Pz, RetY + Py
-end
+--関数群
+do
+    --ローカル座標からワールド座標へ変換(physics sensor使用)
+    function local2World(Lx, Ly, Lz, Px, Py, Pz, Ex, Ey, Ez)
+        local RetX, RetY, RetZ
+        RetX = math.cos(Ez)*math.cos(Ey)*Lx + (math.cos(Ez)*math.sin(Ey)*math.sin(Ex) - math.sin(Ez)*math.cos(Ex))*Lz + (math.cos(Ez)*math.sin(Ey)*math.cos(Ex) + math.sin(Ez)*math.sin(Ex))*Ly
+        RetY = math.sin(Ez)*math.cos(Ey)*Lx + (math.sin(Ez)*math.sin(Ey)*math.sin(Ex) + math.cos(Ez)*math.cos(Ex))*Lz + (math.sin(Ez)*math.sin(Ey)*math.cos(Ex) - math.cos(Ez)*math.sin(Ex))*Ly
+        RetZ = -math.sin(Ey)*Lx + math.cos(Ey)*math.sin(Ex)*Lz + math.cos(Ey)*math.cos(Ex)*Ly
+        return RetX + Px, RetZ + Pz, RetY + Py
+    end
 
---ワールド座標からローカル座標へ(physics sensor使用)
-function world2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
-    local a, b, c, d, e, f, g, h, i, j, k, l, x, z, y, Lower
-	Wx = Wx - Px
-	Wy = Wy - Pz
-	Wz = Wz - Py
-	a = math.cos(Ez)*math.cos(Ey)
-	b = math.cos(Ez)*math.sin(Ey)*math.sin(Ex) - math.sin(Ez)*math.cos(Ex)
-	c = math.cos(Ez)*math.sin(Ey)*math.cos(Ex) + math.sin(Ez)*math.sin(Ex)
-	d = Wx
-	e = math.sin(Ez)*math.cos(Ey)
-	f = math.sin(Ez)*math.sin(Ey)*math.sin(Ex) + math.cos(Ez)*math.cos(Ex)
-	g = math.sin(Ez)*math.sin(Ey)*math.cos(Ex) - math.cos(Ez)*math.sin(Ex)
-	h = Wz
-	i = -math.sin(Ey)
-	j = math.cos(Ey)*math.sin(Ex)
-	k = math.cos(Ey)*math.cos(Ex)
-	l = Wy
-	Lower = ((a*f-b*e)*k + (c*e - a*g)*j + (b*g - c*f)*i)
-	x = 0
-	y = 0
-	z = 0
-	if Lower ~= 0 then
-		x = ((b*g - c*f)*l + (d*f - b*h)*k + (c*h - d*g)*j)/Lower
-		y = -((a*g - c*e)*l + (d*e - a*h)*k + (c*h - d*g)*i)/Lower
-		z = ((a*f - b*e)*l + (d*e - a*h)*j + (b*h - d*f)*i)/Lower
-	end
-	return x, z, y
-end
+    --ワールド座標からローカル座標へ(physics sensor使用)
+    function world2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
+        local a, b, c, d, e, f, g, h, i, j, k, l, x, z, y, Lower
+        Wx = Wx - Px
+        Wy = Wy - Pz
+        Wz = Wz - Py
+        a = math.cos(Ez)*math.cos(Ey)
+        b = math.cos(Ez)*math.sin(Ey)*math.sin(Ex) - math.sin(Ez)*math.cos(Ex)
+        c = math.cos(Ez)*math.sin(Ey)*math.cos(Ex) + math.sin(Ez)*math.sin(Ex)
+        d = Wx
+        e = math.sin(Ez)*math.cos(Ey)
+        f = math.sin(Ez)*math.sin(Ey)*math.sin(Ex) + math.cos(Ez)*math.cos(Ex)
+        g = math.sin(Ez)*math.sin(Ey)*math.cos(Ex) - math.cos(Ez)*math.sin(Ex)
+        h = Wz
+        i = -math.sin(Ey)
+        j = math.cos(Ey)*math.sin(Ex)
+        k = math.cos(Ey)*math.cos(Ex)
+        l = Wy
+        Lower = ((a*f-b*e)*k + (c*e - a*g)*j + (b*g - c*f)*i)
+        x = 0
+        y = 0
+        z = 0
+        if Lower ~= 0 then
+            x = ((b*g - c*f)*l + (d*f - b*h)*k + (c*h - d*g)*j)/Lower
+            y = -((a*g - c*e)*l + (d*e - a*h)*k + (c*h - d*g)*i)/Lower
+            z = ((a*f - b*e)*l + (d*e - a*h)*j + (b*h - d*f)*i)/Lower
+        end
+        return x, z, y
+    end
 
---減衰あり等加速度直線運動で時間から位置を求める
---V0: 初速, a: 加速度, t: 時間, K:抵抗値
--- -(1/math.log(1 - K))*((V0 + a/math.log(1 - K))*(1 - (1 - K)^t) + a*t)
-function calTrajectory(V0, a, t)
-    return ((V0 - a/K)*(1 - math.exp(-K*t)) + a*t)/K
-end
+    --減衰あり等加速度直線運動で時間から位置と速度を求める
+    --V0: 初速, a: 加速度, t: 時間, K:抵抗値
+    function calTrajectoryXV(x0, V0, a, t, K)
+        debug1 = debug1 + 1
 
---減衰あり等加速度直線運動で時間から速度を求める
-function calTrajectoryV(V0, a, t)
-    return (V0 - a/K)*math.exp(-K*t) + a/K
-end
+        return ((V0 - a/K)*(1 - math.exp(-K*t)) + a*t)/K + x0, (V0 - a/K)*math.exp(-K*t) + a/K
+    end
 
---減衰あり等加速度直線運動で速度０となる時間を求める
-function calTrajectoryT(V0, a)
-    return math.log(1 - K*V0/a)/K
-end
+    --減衰あり等加速度直線運動で水平距離から垂直距離を求める
+    function calTrajectoryZ(V0, K, theta, y)
+        return y*(V0*math.sin(theta) + g/K)/V0/math.cos(theta) + g*math.log(1 - K*y/V0/math.cos(theta))/(K^2)
+    end
 
---二分法
---到達チックをy方向から逆算
-function dichotomy(tick_min, tick_max, tick, V0, a, Ty, reverse)
-    local y
-    for i = 1, 20 do
-        y = calTrajectory(V0, a, tick)
-        if y*reverse > Ty*reverse then
-            tick_max = tick
-            tick = (tick + tick_min)/2
+    --高度変化による気圧と重力加速度を求める(return g [m/tick^2], atm)
+    function calGravAndAtm(h)
+        local g, atm
+        g = 30*math.exp(-1/60*h/1000)/3600
+        atm = (((44.33-h/1000)/11.89)^5.256)/1013
+        atm = (h >= 40000) and 0 or atm
+        return g, atm
+    end
+
+    --xに到達するまでの時間をニュートン法で求める(return t, y)
+    function newtonsMethod(x, x0, v0, a, K, t)
+        local df, y
+        for i = 1, 20 do
+            y = calTrajectoryXV(x0, v0, a, t, K) - x
+            --終了条件
+            if math.abs(y) < NEWTON_ERROR then
+                break
+            end
+            df = (v0 - a/K)*math.exp(-K*t) + a/K
+            t = t - y/df
+        end
+        return t, y + x
+    end
+
+    --ブレント法(b:最良, a:bと逆符号, c: 前回のb, d:今回更新幅, e:前回更新幅)
+    --return: a, b, c, fa, fc, d
+    function brentsMethod(a, b, c, fa, fb, fc, e)
+        local alpha, beta, d
+        if fa*fb > 0 then                   --a, bが同符号の場合入れ替え
+            a = c
+            fa = fc
+            d = b - c
+            e = d
+        end
+        if math.abs(fa) < math.abs(fb) then --入れ替え
+            a, b, c = b, c, b
+            fa, fb, fc = fb, fc, fb
+        end
+
+        alpha = (a - b)/2
+        beta = fb/fc
+
+        if math.abs(fc) < math.abs(fb) then --二分法
+            d, e = alpha, alpha
         else
-            tick_min = tick
-            tick = (tick + tick_max)/2
+            local p, q, r
+            if a == c then                  --線形補間
+                p = 2*alpha*beta
+                q = 1 - beta
+            else                            --逆二次補完
+                q = fc/fa
+                r = fb/fa
+                p = beta*(2*alpha*q*(q - r) - (b - c)*(r - 1))
+                q = (q - 1)*(r - 1)*(beta - 1)
+            end
+
+            beta, e = e, d
+
+            if math.abs(2*p) < math.abs(3*alpha*q) and math.abs(p) < math.abs(beta*q/2) then
+                d = -p/q
+            else                            --二分法
+                d, e = alpha, alpha
+            end
         end
+
+        b, c = b + d, b
+        fc = fb
+        return a, b, c, fa, fc, d
     end
-    return tick, y
-end
 
---風速をワールド風速に変換
-function windLocal2World(windLv, windLdirec, Pvx, Pvz, Ex, Ey, Ez)
-    local windLvx, windLvy, x, y, z, e_x, e_y, e_z, windWdirec, windWv
-    --ローカル風速
-    windLvx = windLv*math.sin(windLdirec*pi2) - Pvx
-    windLvy = windLv*math.cos(windLdirec*pi2) - Pvz
-    --風速ベクトルと単位ｚベクトルをワールド変換
-    x, y, z = local2World(windLvx, windLvy, 0, 0, 0, 0, Ex, Ey, Ez)
-    e_x, e_y, e_z = local2World(0, 0, 1, 0, 0, 0, Ex, Ey, Ez)
-    --ワールド風速を計算
-    windWvx = x - (e_x*z)/e_z
-    windWvy = y - (e_y*z)/e_z
-    windWdirec = math.atan(windWvx, windWvy)
-    windWv = distance2(windWvx, windWvy)
-    return windWv, windWdirec
-end
-
-function distance2(x, y)
-    return math.sqrt(x^2 + y^2)
-end
-
-function clamp(x, min, max)
-    if x >= max then
-        x = max
-    elseif x <= min then
-        x = min
+    --風速をワールド風速に変換
+    function windLocal2World(windLv, windLdirec, Pvx, Pvz, Ex, Ey, Ez)
+        local windLvx, windLvy, x, y, z, e_x, e_y, e_z, windWdirec, windWv
+        --ローカル風速
+        windLvx = windLv*math.sin(windLdirec*pi2) - Pvx
+        windLvy = windLv*math.cos(windLdirec*pi2) - Pvz
+        --風速ベクトルと単位ｚベクトルをワールド変換
+        x, y, z = local2World(windLvx, windLvy, 0, 0, 0, 0, Ex, Ey, Ez)
+        e_x, e_y, e_z = local2World(0, 0, 1, 0, 0, 0, Ex, Ey, Ez)
+        --ワールド風速を計算
+        windVx = x - (e_x*z)/e_z
+        windVy = y - (e_y*z)/e_z
+        windWdirec = math.atan(windVx, windVy)
+        windWv = distance2(windVx, windVy)
+        return windWv, windWdirec
     end
-    return x
-end
 
---未来位置予測(return: x, y, z, vx, vy, vz)
-function predictTRD1(x, y, z, vx, vy, vz, ax, ay, az, t)
-    return ax*t^2/2 + vx*t + x, ay*t^2/2 + vy*t + y, az*t^2/2 + vz*t + z, ax*t + vx, ay*t + vy, az*t + vz
-end
+    function distance2(x, y)
+        return math.sqrt(x^2 + y^2)
+    end
 
-pitchErrorPre = 0
-pitchErrorSum = 0
-yawErrorPre = 0
-yawErrorSum = 0
+    function clamp(x, min, max)
+        if x >= max then
+            x = max
+        elseif x <= min then
+            x = min
+        end
+        return x
+    end
 
---PID制御
-function PID(P, I, D, target, current, errorSumPre, errorPre, min, max)
-    local error, errorSum, errorDiff, control
-    error = target - current
-    errorSum = errorSumPre + error
-    errorDiff = error - errorPre
-    control = P*error + I*errorSum + D*errorDiff
+    --未来位置予測(return: x, y, z, vx, vy, vz)
+    function predictTRD1(x, y, z, vx, vy, vz, ax, ay, az, t)
+        return ax*t^2/2 + vx*t + x, ay*t^2/2 + vy*t + y, az*t^2/2 + vz*t + z, ax*t + vx, ay*t + vy, az*t + vz
+    end
 
-    if control > max or control < min then
-        errorSum = errorSumPre
+    pitchErrorPre = 0
+    pitchErrorSum = 0
+    yawErrorPre = 0
+    yawErrorSum = 0
+
+    --PID制御
+    function PID(P, I, D, target, current, errorSumPre, errorPre, min, max)
+        local error, errorSum, errorDiff, control
+        error = target - current
+        errorSum = errorSumPre + error
+        errorDiff = error - errorPre
         control = P*error + I*errorSum + D*errorDiff
-    end
-    return clamp(control, min, max), errorSum, error
-end
 
-function same_rotation(x)
-    return (x + 0.5)%1 - 0.5
-end
-
-function limit_rotation(control, position, min, max)
-    if position >= max then
-        if control > 0 then
-            control = 0
+        if control > max or control < min then
+            errorSum = errorSumPre
+            control = P*error + I*errorSum + D*errorDiff
         end
-        control = control - 0.01
-    elseif position <= min then
-        if control < 0 then
-            control = 0
+        return clamp(control, min, max), errorSum, error
+    end
+
+    function same_rotation(x)
+        return (x + 0.5)%1 - 0.5
+    end
+
+    function limit_rotation(control, position, min, max)
+        if position >= max then
+            if control > 0 then
+                control = 0
+            end
+            control = control - 0.01
+        elseif position <= min then
+            if control < 0 then
+                control = 0
+            end
+            control = control + 0.01
         end
-        control = control + 0.01
+        return control
     end
-    return control
-end
 
---角速度より未来位置計算
-t_delta = 0.1
-function stabiFutureAngle(x, y, z, rvx, rvy, rvz, tick)
-    local x_diff, y_diff, z_diff, abs_vector, t
-    t = 0
-    while t <= tick do
-        --外積(変分)を計算
-        x_diff, y_diff, z_diff = y*rvz - z*rvy, z*rvx - x*rvz, x*rvy - y*rvx
-        --位置ベクトルに足し合わせる
-        x, y, z = x + x_diff*t_delta, y + y_diff*t_delta, z + z_diff*t_delta
-        --単位ベクトル化
-        abs_vector = math.sqrt(x^2 + y^2 + z^2)
-        x, y, z = x/abs_vector, y/abs_vector, z/abs_vector
-        t = t + t_delta
+    --角速度より未来位置計算
+    t_delta = 0.1
+    function stabiFutureAngle(x, y, z, rvx, rvy, rvz, tick)
+        local x_diff, y_diff, z_diff, abs_vector, t
+        t = 0
+        while t <= tick do
+            --外積(変分)を計算
+            x_diff, y_diff, z_diff = y*rvz - z*rvy, z*rvx - x*rvz, x*rvy - y*rvx
+            --位置ベクトルに足し合わせる
+            x, y, z = x + x_diff*t_delta, y + y_diff*t_delta, z + z_diff*t_delta
+            --単位ベクトル化
+            abs_vector = math.sqrt(x^2 + y^2 + z^2)
+            x, y, z = x/abs_vector, y/abs_vector, z/abs_vector
+            t = t + t_delta
+        end
+        return x, y, z
     end
-    return x, y, z
-end
 
---視線角速度(return: losX, losY, losZ)
-function losRv(Px, Py, Pz, Ex, Ey, Ez, Pvx, Pvy, Pvz, Prvx, Prvy, Prvz, Tx, Ty, Tz, Tvx, Tvy, Tvz)
-    local Vrx, Vry, Vrz, T2, TLx, TLy, TLz, TLvx, TLvy, TLvz, PLrvx, PLrvy, PLrvz
-    TLx, TLy, TLz = world2Local(Tx, Ty, Tz, Px, Py, Pz, Ex, Ey, Ez)
-    TLvx, TLvy, TLvz = world2Local(Tvx, Tvy, Tvz, 0, 0, 0, Ex, Ey, Ez)
-    PLrvx, PLrvy, PLrvz = world2Local(Prvx, Prvz, Prvy, 0, 0, 0, Ex, Ey, Ez)
-    --相対速度
-    Vrx, Vry, Vrz = TLvx - Pvx, TLvy - Pvz, TLvz - Pvy
-    --分母
-    T2 = TLx^2 + TLy^2 + TLz^2
-    --標的の角速度を求め、自身の角速度と合成
-    return -(TLy*Vrz - TLz*Vry)/T2 - PLrvx, -(TLz*Vrx - TLx*Vrz)/T2 - PLrvy, -(TLx*Vry - TLy*Vrx)/T2 - PLrvz
-end
-
---ローカル座標からローカル極座標へ変換(return pitch, yaw)
-function rect2Polar(x, y, z, radian_bool)
-    local pitch, yaw
-    pitch = math.atan(z, math.sqrt(x^2 + y^2))
-    yaw = math.atan(x, y)
-    if radian_bool then
-        return pitch, yaw
-    else
-        return pitch/(pi2), yaw/(pi2)
+    --視線角速度(return: losX, losY, losZ)
+    function losRv(Px, Py, Pz, Ex, Ey, Ez, Pvx, Pvy, Pvz, Prvx, Prvy, Prvz, Tx, Ty, Tz, Tvx, Tvy, Tvz)
+        local Vrx, Vry, Vrz, T2, TLx, TLy, TLz, TLvx, TLvy, TLvz, PLrvx, PLrvy, PLrvz
+        TLx, TLy, TLz = world2Local(Tx, Ty, Tz, Px, Py, Pz, Ex, Ey, Ez)
+        TLvx, TLvy, TLvz = world2Local(Tvx, Tvy, Tvz, 0, 0, 0, Ex, Ey, Ez)
+        PLrvx, PLrvy, PLrvz = world2Local(Prvx, Prvz, Prvy, 0, 0, 0, Ex, Ey, Ez)
+        --相対速度
+        Vrx, Vry, Vrz = TLvx - Pvx, TLvy - Pvz, TLvz - Pvy
+        --分母
+        T2 = TLx^2 + TLy^2 + TLz^2
+        --標的の角速度を求め、自身の角速度と合成
+        return -(TLy*Vrz - TLz*Vry)/T2 - PLrvx, -(TLz*Vrx - TLx*Vrz)/T2 - PLrvy, -(TLx*Vry - TLy*Vrx)/T2 - PLrvz
     end
+
+    --ローカル座標からローカル極座標へ変換(return pitch, yaw)
+    function rect2Polar(x, y, z, radian_bool)
+        local pitch, yaw
+        pitch = math.atan(z, math.sqrt(x^2 + y^2))
+        yaw = math.atan(x, y)
+        if radian_bool then
+            return pitch, yaw
+        else
+            return pitch/(pi2), yaw/(pi2)
+        end
+    end
+
 end
 
 function onTick()
-    Tx = INN(1)
-    Ty = INN(2)
-    Tz = INN(3)
-    Tvx = INN(4)
-    Tvy = INN(5)
-    Tvz = INN(6)
-    Tax = INN(7)
-    Tay = INN(8)
-    Taz = INN(9)
+    debug1 = 0
 
-    BodEx = INN(10)
-    BodEy = INN(11)
-    BodEz = INN(12)
-    BodPvx = INN(13)/60
-    BodPvy = INN(14)/60
-    BodPvz = INN(15)/60
-    BodPrvx = INN(16)*pi2/60
-    BodPrvy = INN(17)*pi2/60
-    BodPrvz = INN(18)*pi2/60
+    --インプット
+    do
+        Tx = INN(1)
+        Ty = INN(2)
+        Tz = INN(3)
+        Tvx = INN(4)
+        Tvy = INN(5)
+        Tvz = INN(6)
+        Tax = INN(7)
+        Tay = INN(8)
+        Taz = INN(9)
 
-    TurPx = INN(19)
-    TurPy = INN(20)
-    TurPz = INN(21)
-    TurEx = INN(22)
-    TurEy = INN(23)
-    TurEz = INN(24)
+        BodEx = INN(10)
+        BodEy = INN(11)
+        BodEz = INN(12)
+        BodPvx = INN(13)/60
+        BodPvy = INN(14)/60
+        BodPvz = INN(15)/60
+        BodPrvx = INN(16)*pi2/60
+        BodPrvy = INN(17)*pi2/60
+        BodPrvz = INN(18)*pi2/60
 
-    windLv = INN(25)/60
-    windLdirec = INN(26)
+        TurPx = INN(19)
+        TurPy = INN(20)
+        TurPz = INN(21)
+        TurEx = INN(22)
+        TurEy = INN(23)
+        TurEz = INN(24)
 
-    WPN_TYPE = PRN("Weapon Type") + 1
-    STANDBY_YAW = PRN("standby yaw position (degree)")/360
-    MIN_PITCH = PRN("min pitch (degree)")/360
-    MAX_PITCH = PRN("max pitch (degree)")/360
-    PITCH_LIMIT_ENABLE = PRB("Pitch Swivel Mode")
-    MIN_YAW = PRN("min yaw (degree)")/360
-    MAX_YAW = PRN("max yaw (degree)")/360
-    YAW_LIMIT_ENABLE = PRB("Yaw Swivel Mode")
-    MAX_SPEED_GAIN = PRN("Pivot rotation speed gain")
-    PITCH_PIVOT = PRN("Pitch gear ratio (1 : ?)")/PRN("Types of Pitch PIVOT")   --gear/pivot
-    YAW_PIVOT = PRN("Yaw gear ratio (1 : ?)")/PRN("Types of Yaw PIVOT")
-    OFFSET_X = PRN("Turret phy. offset x (m)")
-    OFFSET_Y = PRN("Turret phy. offset y (m)")
-    OFFSET_Z = PRN("Turret phy. offset z (m)")
+        windLv = INN(25)/60
+        windLdirec = INN(26)
 
-    TRD1Exists = INB(1)
+        WPN_TYPE = PRN("Weapon Type") + 1
+        STANDBY_YAW = PRN("standby yaw position (degree)")/360
+        MIN_PITCH = PRN("min pitch (degree)")/360
+        MAX_PITCH = PRN("max pitch (degree)")/360
+        PITCH_LIMIT_ENABLE = PRB("Pitch Swivel Mode")
+        MIN_YAW = PRN("min yaw (degree)")/360
+        MAX_YAW = PRN("max yaw (degree)")/360
+        YAW_LIMIT_ENABLE = PRB("Yaw Swivel Mode")
+        MAX_SPEED_GAIN = PRN("Pivot rotation speed gain")
+        PITCH_PIVOT = PRN("Pitch gear ratio (1 : ?)")/PRN("Types of Pitch PIVOT")   --gear/pivot
+        YAW_PIVOT = PRN("Yaw gear ratio (1 : ?)")/PRN("Types of Yaw PIVOT")
+        OFFSET_X = PRN("Turret phy. offset x (m)")
+        OFFSET_Y = PRN("Turret phy. offset y (m)")
+        OFFSET_Z = PRN("Turret phy. offset z (m)")
 
-    power = INB(2)
-    highAngleEnable = INB(4)
-    reloadEnable = INB(5)
+        TRD1Exists = INB(1)
+
+        power = INB(2)
+        highAngleEnable = INB(4)
+        reloadEnable = INB(5)
+
+    end
 
     inRange = false
 
@@ -333,7 +395,7 @@ function onTick()
         currentYaw = currentYaw - STANDBY_YAW
     end
 
-    V0, K, tick_del, WI = parameter[WPN_TYPE][1]/60, parameter[WPN_TYPE][2], parameter[WPN_TYPE][3], parameter[WPN_TYPE][4]
+    V0, K, tickDel, WIND_INFLUENCE = parameter[WPN_TYPE][1]/60, parameter[WPN_TYPE][2], parameter[WPN_TYPE][3], parameter[WPN_TYPE][4]
 
     --オフセット
     TurPx, TurPz, TurPy = local2World(OFFSET_X, OFFSET_Y, OFFSET_Z, TurPx, TurPy, TurPz, BodEx, BodEy, BodEz)
@@ -343,6 +405,10 @@ function onTick()
 
     --補足時かつ起動時
     if TRD1Exists and power then
+
+        --ロケットか否か
+        isRocket = WPN_TYPE == 8
+
         --遅れ補正
         TWLx, TWLy, TWLz, Tvx, Tvy, Tvz = predictTRD1(TWLx, TWLy, TWLz, Tvx, Tvy, Tvz, Tax, Tay, Taz, TRD1_DELAY)
         --ワールド速度
@@ -352,119 +418,249 @@ function onTick()
         --風向き変換
         windWv, windWdirec = windLocal2World(windLv, windLdirec, BodPvx, BodPvz, BodEx, BodEy, BodEz)
 
-        --向くべき方向を計算
-        future_x, future_y, future_z = TWLx, TWLy, TWLz
+        --海面高度での風速に変換
+        local _, atm = calGravAndAtm(TurPy)
+        windWv = windWv/atm
+
+        --目標の未来位置の初期値
+        tick = math.sqrt(TWLx^2 + TWLy^2 + TWLz)/(V0 + (isRocket and 600 or 0))
+        futureX, futureY, futureZ = predictTRD1(TWLx, TWLy, TWLz, Tvx, Tvy, Tvz, Tax, Tay, Taz, tick)
         
         tickPre = 0     --偏差終了判定に用いる到達時間
 
-        --未来位置偏差のループ
-        for i = 1, 15 do
-            --方位角、仰角仮定
-            future_xy = distance2(future_x, future_y)
-            Azimuth = math.atan(future_x, future_y)
-            Elevation = math.atan(future_z, future_xy)
-            
-            --曲射ループ
-            for k = 1, 2 do
-                --イテレーション
-                for j = 1, 60 do
-                    Iteration_j = j
+        --弾道計算
+        --未来偏差イテレーション
+        for i = 1, 10 do
 
-                    --砲弾方向に風とビークル速度を成分分解
-                    --yが砲弾前進方向
-                    goal_y = future_xy*math.cos(math.atan(future_x, future_y) - Azimuth)
+            --方位角仮定
+            futureXY = distance2(futureX, futureY)
+            Azimuth = math.atan(futureX, futureY)
 
-                    windWvx = windWv*math.sin(windWdirec - Azimuth)
-                    windWvy = windWv*math.cos(windWdirec - Azimuth)
-                    wind_ax, wind_ay = -windWvx*WI/60, -windWvy*WI/60
-    
-                    V0_x = Wvxy*math.sin(Wvxy_direc - Azimuth)
-                    V0_y = V0*math.cos(Elevation) + Wvxy*math.cos(Wvxy_direc - Azimuth)
-                    V0_z = V0*math.sin(Elevation) + Wvz
-    
-                    --ロケット
-                    if WPN_TYPE == 8 then
-                        ay = ROCKET_ACL*math.cos(Elevation) + wind_ay
-                        az = ROCKET_ACL*math.sin(Elevation) - g
-                        rocket_y = calTrajectory(V0_y, ay, 60)
-                        rocket_z = calTrajectory(V0_z, az, 60)
-                        rocket_V0_y = calTrajectoryV(V0_y, ay, 60)
-                        rocket_V0_z = calTrajectoryV(V0_z, az, 60)
+            --yが砲弾前進方向
+            goalX = futureXY*math.sin(math.atan(futureX, futureY) - Azimuth)
+            goalY = futureXY*math.cos(math.atan(futureX, futureY) - Azimuth)
+            goalZ = futureZ
 
-                        --直射
-                        if k < 2 then
-                            --加速している間の計算
-                            if rocket_y > goal_y then
-                                tick, y = dichotomy(0, tick_del*2, tick_del, V0_y , ay, goal_y, 1)
-                                z = calTrajectory(V0_z, az, tick)
-                            --加速後の計算
-                            else
-                                rocket_tick, y = dichotomy(0, tick_del*2, tick_del, rocket_V0_y ,wind_ay, goal_y - rocket_y, 1)
-                                y =  y + rocket_y
-                                z = calTrajectory(rocket_V0_z, -g, rocket_tick) + rocket_z
-                                tick = 60 + rocket_tick
-                            end
-                        --曲射
-                        else
-                            min_tick = calTrajectoryT(rocket_V0_z, -g)
-                            rocket_tick, z = dichotomy(min_tick, tick_del*2, tick_del, rocket_V0_z , -g, future_z - rocket_z, -1)
-                            y = calTrajectory(rocket_V0_y, wind_ay, rocket_tick) + rocket_y
-                            z = z + rocket_z
-                            tick = 60 + rocket_tick
-                        end
-                    --ロケット以外
-                    else
-                        --直射
-                        if k < 2 then
-                            tick, y = dichotomy(0, tick_del*2, tick_del, V0_y, wind_ay, goal_y, 1)
-                            z = calTrajectory(V0_z, -g, tick)
-                        --曲射
-                        else
-                            min_tick = calTrajectoryT(V0_z, -g)
-                            tick, z = dichotomy(min_tick, tick_del*2, tick_del, V0_z, -g, future_z, -1)
-                            y = calTrajectory(V0_y, wind_ay, tick)
+            --曲射解と直射解を解析式で求め、中間値を直射・曲射境界値に
+            do
+                local function brentsTrajectory(a, b)
+                    local c, fa, fb, fc, e
+                    fa = calTrajectoryZ(V0, K, a, goalY) - goalZ
+                    c, fc = a, fa
+                    e = b - a
+                    for i = 1, 10 do
+                        fb = calTrajectoryZ(V0, K, b, goalY) - goalZ
+                        a, b, c, fa, fc, e = brentsMethod(a, b, c, fa, fb, fc, e)
+                        if math.abs(b) < (0.1/360)*pi2 then
+                            break
                         end
                     end
-
-                    x = calTrajectory(V0_x, wind_ax, tick)
-
-                    --イテレーション終了
-                    if (math.abs(future_z - z) < 0.1 and k < 2) or (math.abs(goal_y - y) < 0.1 and k > 1) then
-                        break
-                    end
-    
-                    --誤差より、方位角と仰角を修正
-                    Azimuth = math.atan(future_x, future_y) - math.atan(x, y)
-                    --曲射
-                    if k > 1 then
-                        if y < goal_y then
-                            max_Elevation = Elevation
-                            Elevation = (Elevation + min_Elevation)/2
-                        else
-                            min_Elevation = Elevation
-                            Elevation = (Elevation + max_Elevation)/2
-                        end
-                    --直射
-                    else
-                        Elevation = Elevation + math.atan(future_z, goal_y) - math.atan(z, y)
-                    end
-
+                    return b
                 end
 
-                inRange = tick < tick_del and Iteration_j ~= 60
+                local V0Border, A
 
-                --曲射ループへ
-                if highAngleEnable and k < 2 and inRange then
-                    min_Elevation = clamp(Elevation, math.pi/9, math.pi/2)
-                    max_Elevation = math.pi/2
-                    Elevation = math.pi/4 + min_Elevation/2
-                else
-                    break
+                --曲射/直射境界仰角条件
+                V0Border = V0 + (isRocket and 10 or 0)
+                A = -goalY*g/V0Border
+                highAngleBorder = math.acos(K*goalY/math.sqrt(A^2 + V0Border^2)) + math.atan(A, V0Border)
+
+                --直射解
+                directTheta = brentsTrajectory(highAngleBorder, math.atan(goalZ, goalY))
+
+                --曲射解
+                indirectTheta = brentsTrajectory(highAngleBorder, pi2/4 - (0.1/360)*pi2)
+
+                --境界条件をより余裕のある値へ(平均)
+                highAngleBorder = (directTheta + indirectTheta)/2
+            end
+
+            --仰角仮定
+            Elevation = highAngleEnable and indirectTheta or directTheta
+
+            --仰角方位角イテレーション
+            for j = 1, 10 do
+                Iteration_j = j
+
+                --砲弾方向に風とビークル速度を成分分解
+                windVx = windWv*math.sin(windWdirec - Azimuth)
+                windVy = windWv*math.cos(windWdirec - Azimuth)
+
+                v0X = Wvxy*math.sin(Wvxy_direc - Azimuth)
+                v0Y = V0*math.cos(Elevation) + Wvxy*math.cos(Wvxy_direc - Azimuth)
+                v0Z = V0*math.sin(Elevation) + Wvz
+
+                --ロケット
+                rocketAy = ROCKET_ACL*math.cos(Elevation)
+                rocketAz = ROCKET_ACL*math.sin(Elevation)
+
+                --数値積分で厳密解を求める
+                if highAngleEnable then --曲射
+                    local MAX, G, x, y, z, vX, vY, vZ, stepT, aveAlt, isFalling, isArrived
+                    MAX = math.sqrt(2*x/g)
+                    x, y, z = 0, 0, 0
+                    vX, vY, vZ = v0X, v0Y, v0Z
+                    G = g
+                    tick = 0
+
+                    --ロケットの加速
+                    if isRocket then
+                        tick = 60
+                        aveAlt = z - (rocketAz - G)*(30^2)/2 + vZ*30
+                        G, atm = calGravAndAtm(aveAlt)
+                        x, vX = calTrajectoryXV(x, vX, -windVx*atm*WIND_INFLUENCE/60, 60, K)
+                        y, vY = calTrajectoryXV(x, vY, rocketAy - windVy*atm*WIND_INFLUENCE/60, 60, K)
+                        z, vZ = calTrajectoryXV(x, vZ, rocketAz - G, 60, K)
+                    end
+
+                    --数値積分
+                    for k = 1, 100 do
+                        --垂直方向初速より更新ステップと平均高度を決定
+                        stepT = clamp(math.abs(ALT_INTERVAL/vZ), 1, MAX)
+                        aveAlt = z - G*((stepT/2)^2)/2 + vZ*(stepT/2)
+
+                        --重力加速度と気圧より、加速度を計算
+                        G, atm = calGravAndAtm(aveAlt)
+                        local ax, ay = -windVx*atm*WIND_INFLUENCE/60, -windVy*atm*WIND_INFLUENCE/60
+
+                        --ステップ後の位置計算
+                        z, vZ = calTrajectoryXV(z, vZ, -G, stepT, K)
+
+                        --頂点通過判定
+                        isFalling = vZ < 0
+                        --目標高度の通過判定
+                        isArrived = z < goalZ
+
+                        --目標を通過したら正確な位置とステップ幅を再計算(ニュートン法)
+                        if isFalling and isArrived then
+                            stepT, z = newtonsMethod(goalZ, lastZ, lastVz, -G, K, stepT/2)
+                        end
+
+                        --x, yも計算
+                        x, vX = calTrajectoryXV(x, vX, ax, stepT, K)
+                        y, vY = calTrajectoryXV(y, vY, ay, stepT, K)
+                        tick = tick + stepT
+
+                        if (isFalling and isArrived) or tick > tickDel then
+                            break
+                        end
+
+                        lastZ, lastVz = z, vZ
+                    end
+
+                    --イテレーション終了
+                    if math.abs(goalY - y) < 0.1 and math.abs(x) < 0.1 then
+                        break
+                    end
+
+                    --仰角更新
+                    if j == 1 then  --ブレント初期値設定
+                        aEl, faEl = Elevation, y - goalY
+                        if y >= goalY then
+                            Elevation = highAngleBorder
+                        else
+                            Elevation = pi2/4
+                        end
+                        cEl, fcEl = aEl, faEl
+                        eEl = Elevation - aEl
+                    else            --ブレント更新
+                        aEl, Elevation, cEl, faEl, fcEl, eEl = brentsMethod(aEl, Elevation, cEl, faEl, y - goalY, fcEl, eEl)
+                    end
+
+                    --方位角更新
+                    Azimuth = math.atan(futureX, futureY) - math.atan(x, y)
+                else                    --直射
+                    local MAX, G, x, y, z, vX, vY, vZ, stepT, aveAlt, isFalling, isArrived
+                    MAX = math.sqrt(2*x/g)
+                    x, y, z = 0, 0, 0
+                    vX, vY, vZ = v0X, v0Y, v0Z
+                    G = g
+                    tick = 0
+                    isArrived = false
+
+                    --ロケットの加速
+                    if isRocket then
+                        stepT = 60
+                        aveAlt = z - (rocketAz - G)*(30^2)/2 + vZ*30
+                        G, atm = calGravAndAtm(aveAlt)
+                        
+                        y, vY = calTrajectoryXV(x, vY, rocketAy - windVy*atm*WIND_INFLUENCE/60, stepT, K)
+                        
+                        --目標y座標の通過判定
+                        isArrived = y < goalY
+
+                        --目標を通過したら正確な位置とステップ幅を再計算(ニュートン法)
+                        if isArrived then
+                            stepT, y = newtonsMethod(goalY, 0, v0Y, rocketAy - windVy*atm*WIND_INFLUENCE/60, K, stepT/2)
+                        end
+                        x, vX = calTrajectoryXV(x, vX, -windVx*atm*WIND_INFLUENCE/60, stepT, K)
+                        z, vZ = calTrajectoryXV(x, vZ, rocketAz - G, stepT, K)
+                        tick = stepT
+                    end
+
+                    --数値積分
+                    if not isArrived then
+                        for k = 1, 100 do
+                            --垂直方向初速より更新ステップと平均高度を決定
+                            stepT = clamp(math.abs(ALT_INTERVAL/vZ), 1, MAX)
+                            aveAlt = z - G*((stepT/2)^2)/2 + vZ*(stepT/2)
+
+                            --重力加速度と気圧より、加速度を計算
+                            G, atm = calGravAndAtm(aveAlt)
+                            local ax, ay = -windVx*atm*WIND_INFLUENCE/60, -windVy*atm*WIND_INFLUENCE/60
+
+                            --ステップ後の位置計算
+                            y, vY = calTrajectoryXV(y, vY, ay, stepT, K)
+
+                            --目標高度の通過判定
+                            isArrived = y > goalY
+
+                            --目標を通過したら正確な位置とステップ幅を再計算(ニュートン法)
+                            if isArrived then
+                                stepT, y = newtonsMethod(goalY, lastY, lastVy, ay, K, stepT/2)
+                            end
+
+                            --x, zも計算
+                            x, vX = calTrajectoryXV(x, vX, ax, stepT, K)
+                            z, vZ = calTrajectoryXV(z, vZ, -G, stepT, K)
+                            tick = tick + stepT
+
+                            if isArrived or tick > tickDel then
+                                break
+                            end
+
+                            lastY, lastVy = y, vY
+                        end
+                    end
+
+                    --イテレーション終了
+                    if math.abs(goalZ - z) < 0.1 and math.abs(x) < 0.1 then
+                        break
+                    end
+
+                    --仰角更新
+                    if j == 1 then  --ブレント初期値設定
+                        aEl, faEl = Elevation, z - goalZ
+                        if z >= goalZ then
+                            Elevation = math.atan(goalZ, goalY)
+                        else
+                            Elevation = highAngleBorder
+                        end
+                        cEl, fcEl = aEl, faEl
+                        eEl = Elevation - aEl
+                    else            --ブレント更新
+                        aEl, Elevation, cEl, faEl, fcEl, eEl = brentsMethod(aEl, Elevation, cEl, faEl, z - goalZ, fcEl, eEl)
+                    end
+
+                    --方位角更新
+                    Azimuth = math.atan(futureX, futureY) - math.atan(x, y)
                 end
             end
 
+            inRange = tick < tickDel and Iteration_j ~= 10
+
             --tickより、目標未来位置計算
-            future_x, future_y, future_z = predictTRD1(TWLx, TWLy, TWLz, Tvx, Tvy, Tvz, Tax, Tay, Taz, tick)
+            futureX, futureY, futureZ = predictTRD1(TWLx, TWLy, TWLz, Tvx, Tvy, Tvz, Tax, Tay, Taz, tick)
             --未来位置偏差終了
             if math.abs(tickPre - tick) < 0.01 then
                 break
@@ -562,4 +758,6 @@ function onTick()
     OUN(30, tick)
     OUN(31, Elevation)
     OUN(32, Azimuth)
+
+    OUN(21, debug1)
 end
