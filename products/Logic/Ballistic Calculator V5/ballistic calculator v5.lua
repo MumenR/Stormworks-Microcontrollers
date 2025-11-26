@@ -421,6 +421,7 @@ function onTick()
         --海面高度での風速に変換
         local _, atm = calGravAndAtm(TurPy)
         windWv = windWv/atm
+        OUN(22, atm)
 
         --目標の未来位置の初期値
         tick = math.sqrt(TWLx^2 + TWLy^2 + TWLz)/(V0 + (isRocket and 600 or 0))
@@ -479,8 +480,16 @@ function onTick()
             Elevation = highAngleEnable and indirectTheta or directTheta
 
             --仰角方位角イテレーション
-            for j = 1, 10 do
+            for j = 1, 20 do
                 Iteration_j = j
+
+                OUN(26, j)
+                OUN(27, i)
+
+                --yが砲弾前進方向
+                goalX = futureXY*math.sin(math.atan(futureX, futureY) - Azimuth)
+                goalY = futureXY*math.cos(math.atan(futureX, futureY) - Azimuth)
+                goalZ = futureZ
 
                 --砲弾方向に風とビークル速度を成分分解
                 windVx = windWv*math.sin(windWdirec - Azimuth)
@@ -496,12 +505,13 @@ function onTick()
 
                 --数値積分で厳密解を求める
                 if highAngleEnable then --曲射
-                    local MAX, G, x, y, z, vX, vY, vZ, stepT, aveAlt, isFalling, isArrived
-                    MAX = math.sqrt(2*x/g)
+                    local MAX, G, x, y, z, vX, vY, vZ, stepT, aveAlt, isFalling, isArrived, lastZ, lastVz
+                    MAX = math.sqrt(2*ALT_INTERVAL/g)
                     x, y, z = 0, 0, 0
                     vX, vY, vZ = v0X, v0Y, v0Z
                     G = g
                     tick = 0
+                    lastZ, lastVz = z, vZ
 
                     --ロケットの加速
                     if isRocket then
@@ -547,16 +557,20 @@ function onTick()
 
                         lastZ, lastVz = z, vZ
                     end
+                    
+                    OUN(23, x - goalX)
+                    OUN(24, y - goalY)
+                    OUN(25, z - goalZ)
 
                     --イテレーション終了
-                    if math.abs(goalY - y) < 0.1 and math.abs(x) < 0.1 then
+                    if math.abs(goalY - y) < 0.1 and math.abs(x - goalX) < 0.1 then
                         break
                     end
 
                     --仰角更新
                     if j == 1 then  --ブレント初期値設定
                         aEl, faEl = Elevation, y - goalY
-                        if y >= goalY then
+                        if y < goalY then
                             Elevation = highAngleBorder
                         else
                             Elevation = pi2/4
@@ -568,15 +582,16 @@ function onTick()
                     end
 
                     --方位角更新
-                    Azimuth = math.atan(futureX, futureY) - math.atan(x, y)
+                    Azimuth = Azimuth + (math.atan(goalX, goalY) - math.atan(x, y))
                 else                    --直射
-                    local MAX, G, x, y, z, vX, vY, vZ, stepT, aveAlt, isFalling, isArrived
-                    MAX = math.sqrt(2*x/g)
+                    local MAX, G, x, y, z, vX, vY, vZ, stepT, aveAlt, isArrived, lastY, lastVy
+                    MAX = math.sqrt(2*ALT_INTERVAL/g)
                     x, y, z = 0, 0, 0
                     vX, vY, vZ = v0X, v0Y, v0Z
                     G = g
                     tick = 0
                     isArrived = false
+                    lastY, lastVy = y, vY
 
                     --ロケットの加速
                     if isRocket then
@@ -633,8 +648,12 @@ function onTick()
                         end
                     end
 
+                    OUN(23, x - goalX)
+                    OUN(24, y - goalY)
+                    OUN(25, z - goalZ)
+
                     --イテレーション終了
-                    if math.abs(goalZ - z) < 0.1 and math.abs(x) < 0.1 then
+                    if math.abs(goalZ - z) < 0.1 and math.abs(x - goalX) < 0.1 then
                         break
                     end
 
@@ -653,7 +672,7 @@ function onTick()
                     end
 
                     --方位角更新
-                    Azimuth = math.atan(futureX, futureY) - math.atan(x, y)
+                    Azimuth = Azimuth + (math.atan(goalX, goalY) - math.atan(x, y))
                 end
             end
 
