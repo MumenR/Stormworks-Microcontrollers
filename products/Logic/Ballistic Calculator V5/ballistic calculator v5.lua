@@ -444,7 +444,7 @@ function onTick()
 
             --曲射解と直射解を解析式で求め、中間値を直射・曲射境界値に
             do
-                local function brentsTrajectory(a, b)
+                local function brentsTrajectory(a, b, V0)
                     local c, fa, fb, fc, e
                     fa = calTrajectoryZ(V0, K, a, goalY) - goalZ
                     c, fc = a, fa
@@ -462,25 +462,28 @@ function onTick()
                 local V0Border, A
 
                 --曲射/直射境界仰角条件
-                V0Border = V0 + (isRocket and 10 or 0)
+                V0Border = V0 + (isRocket and 600/60 or 0)
                 A = -goalY*g/V0Border
                 highAngleBorder = math.acos(K*goalY/math.sqrt(A^2 + V0Border^2)) + math.atan(A, V0Border)
 
                 --直射解
-                directTheta = brentsTrajectory(highAngleBorder, math.atan(goalZ, goalY))
+                directTheta = brentsTrajectory(highAngleBorder, math.atan(goalZ, goalY), V0Border)
 
                 --曲射解
-                indirectTheta = brentsTrajectory(highAngleBorder, pi2/4 - (0.1/360)*pi2)
+                indirectTheta = brentsTrajectory(highAngleBorder, pi2/4 - (0.1/360)*pi2, V0Border)
 
                 --境界条件をより余裕のある値へ(平均)
                 highAngleBorder = (directTheta + indirectTheta)/2
             end
 
+            OUN(28, indirectTheta)
+            OUN(29, directTheta)
+
             --仰角仮定
             Elevation = highAngleEnable and indirectTheta or directTheta
 
             --仰角方位角イテレーション
-            for j = 1, 20 do
+            for j = 1, 10 do
                 Iteration_j = j
 
                 OUN(26, j)
@@ -516,18 +519,19 @@ function onTick()
                     --ロケットの加速
                     if isRocket then
                         tick = 60
-                        aveAlt = z - (rocketAz - G)*(30^2)/2 + vZ*30
+                        aveAlt = TurPy + z + (rocketAz - G)*(30^2)/2 + vZ*30
                         G, atm = calGravAndAtm(aveAlt)
                         x, vX = calTrajectoryXV(x, vX, -windVx*atm*WIND_INFLUENCE/60, 60, K)
-                        y, vY = calTrajectoryXV(x, vY, rocketAy - windVy*atm*WIND_INFLUENCE/60, 60, K)
-                        z, vZ = calTrajectoryXV(x, vZ, rocketAz - G, 60, K)
+                        y, vY = calTrajectoryXV(y, vY, rocketAy - windVy*atm*WIND_INFLUENCE/60, 60, K)
+                        z, vZ = calTrajectoryXV(z, vZ, rocketAz - G, 60, K)
+                        lastZ, lastVz = z, vZ
                     end
 
                     --数値積分
                     for k = 1, 100 do
                         --垂直方向初速より更新ステップと平均高度を決定
                         stepT = clamp(math.abs(ALT_INTERVAL/vZ), 1, MAX)
-                        aveAlt = z - G*((stepT/2)^2)/2 + vZ*(stepT/2)
+                        aveAlt = TurPy + z - G*((stepT/2)^2)/2 + vZ*(stepT/2)
 
                         --重力加速度と気圧より、加速度を計算
                         G, atm = calGravAndAtm(aveAlt)
@@ -596,21 +600,22 @@ function onTick()
                     --ロケットの加速
                     if isRocket then
                         stepT = 60
-                        aveAlt = z - (rocketAz - G)*(30^2)/2 + vZ*30
+                        aveAlt = TurPy + z + (rocketAz - G)*(30^2)/2 + vZ*30
                         G, atm = calGravAndAtm(aveAlt)
                         
-                        y, vY = calTrajectoryXV(x, vY, rocketAy - windVy*atm*WIND_INFLUENCE/60, stepT, K)
+                        y, vY = calTrajectoryXV(y, vY, rocketAy - windVy*atm*WIND_INFLUENCE/60, stepT, K)
                         
                         --目標y座標の通過判定
-                        isArrived = y < goalY
+                        isArrived = y > goalY
 
                         --目標を通過したら正確な位置とステップ幅を再計算(ニュートン法)
                         if isArrived then
                             stepT, y = newtonsMethod(goalY, 0, v0Y, rocketAy - windVy*atm*WIND_INFLUENCE/60, K, stepT/2)
                         end
                         x, vX = calTrajectoryXV(x, vX, -windVx*atm*WIND_INFLUENCE/60, stepT, K)
-                        z, vZ = calTrajectoryXV(x, vZ, rocketAz - G, stepT, K)
+                        z, vZ = calTrajectoryXV(z, vZ, rocketAz - G, stepT, K)
                         tick = stepT
+                        lastY, lastVy = y, vY
                     end
 
                     --数値積分
@@ -618,7 +623,7 @@ function onTick()
                         for k = 1, 100 do
                             --垂直方向初速より更新ステップと平均高度を決定
                             stepT = clamp(math.abs(ALT_INTERVAL/vZ), 1, MAX)
-                            aveAlt = z - G*((stepT/2)^2)/2 + vZ*(stepT/2)
+                            aveAlt = TurPy + z - G*((stepT/2)^2)/2 + vZ*(stepT/2)
 
                             --重力加速度と気圧より、加速度を計算
                             G, atm = calGravAndAtm(aveAlt)
