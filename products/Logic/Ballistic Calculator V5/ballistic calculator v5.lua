@@ -54,9 +54,6 @@ PRB = property.getBool
 pi2 = math.pi*2
 
 --初速と風影響度
---WI = wind influence
-V0 = 0
-WIND_INFLUENCE = 0
 g = 30/3600
 ROCKET_ACL = 600/3600
 ROCKET_ACL_TICK = 60
@@ -325,6 +322,31 @@ do
         end
     end
 
+    --未来位置計算、砲弾方向基準をY方向とした座標系に変換
+    function calGoalXYZ(tick, Azimuth)
+        local futureX, futureY, futureZ = predictTRD1(TWLx, TWLy, TWLz, Tvx, Tvy, Tvz, Tax, Tay, Taz, tick)
+        local futureXY = distance2(futureX, futureY)
+        goalX = futureXY*math.sin(math.atan(futureX, futureY) - Azimuth)
+        goalY = futureXY*math.cos(math.atan(futureX, futureY) - Azimuth)
+        goalZ = futureZ
+        return goalX, goalY, goalZ
+    end
+
+    --ブレント法で仰角を求める(風なし)
+    function brentsTrajectory(a, b, V0)
+        local c, fa, fb, fc, e
+        fa = calTrajectoryZ(V0, K, a, goalY) - goalZ
+        c, fc = a, fa
+        e = b - a
+        for i = 1, 10 do
+            fb = calTrajectoryZ(V0, K, b, goalY) - goalZ
+            a, b, c, fa, fc, e = brentsMethod(a, b, c, fa, fb, fc, e)
+            if math.abs(b) < (0.1/360)*pi2 then
+                break
+            end
+        end
+        return b
+    end
 end
 
 function onTick()
@@ -389,76 +411,49 @@ function onTick()
 
     --ピボットのヨーとピッチに変換
     do
-        local Wx, Wy, Wz = local2World(0, 1, 0, 0, 0, 0, TurEx, TurEy, TurEz)
-        local Lx, Ly, Lz = world2Local(Wx, Wy, Wz, 0, 0, 0, BodEx, BodEy, BodEz)
+        Wx, Wy, Wz = local2World(0, 1, 0, 0, 0, 0, TurEx, TurEy, TurEz)
+        Lx, Ly, Lz = world2Local(Wx, Wy, Wz, 0, 0, 0, BodEx, BodEy, BodEz)
         currentPitch, currentYaw = rect2Polar(Lx, Ly, Lz, false)
         currentYaw = currentYaw - STANDBY_YAW
     end
 
-    V0, K, tickDel, WIND_INFLUENCE = parameter[WPN_TYPE][1]/60, parameter[WPN_TYPE][2], parameter[WPN_TYPE][3], parameter[WPN_TYPE][4]
-
-    --オフセット
-    TurPx, TurPz, TurPy = local2World(OFFSET_X, OFFSET_Y, OFFSET_Z, TurPx, TurPy, TurPz, BodEx, BodEy, BodEz)
-
-    --自分基準ワールド座標系へ
-    TWLx, TWLy, TWLz = Tx - TurPx, Ty - TurPz, Tz - TurPy
-
     --補足時かつ起動時
     if TRD1Exists and power then
 
-        --ロケットか否か
+        V0, K, tickDel, WIND_INFLUENCE = parameter[WPN_TYPE][1]/60, parameter[WPN_TYPE][2], parameter[WPN_TYPE][3], parameter[WPN_TYPE][4]
         isRocket = WPN_TYPE == 8
+
+        --オフセット
+        TurPx, TurPz, TurPy = local2World(OFFSET_X, OFFSET_Y, OFFSET_Z, TurPx, TurPy, TurPz, BodEx, BodEy, BodEz)
+
+        --自分基準ワールド座標系へ
+        TWLx, TWLy, TWLz = Tx - TurPx, Ty - TurPz, Tz - TurPy
 
         --遅れ補正
         TWLx, TWLy, TWLz, Tvx, Tvy, Tvz = predictTRD1(TWLx, TWLy, TWLz, Tvx, Tvy, Tvz, Tax, Tay, Taz, TRD1_DELAY)
-        --ワールド速度
+
+        --ビークル速度
         Wvx, Wvy, Wvz = local2World(BodPvx, BodPvz, BodPvy, 0, 0, 0, BodEx, BodEy, BodEz)
         Wvxy = distance2(Wvx, Wvy)
-        Wvxy_direc = math.atan(Wvx, Wvy)
-        --風向き変換
+        WvxyDirec = math.atan(Wvx, Wvy)
+
+        --海面高度でのワールド風速に変換
         windWv, windWdirec = windLocal2World(windLv, windLdirec, BodPvx, BodPvz, BodEx, BodEy, BodEz)
-
-        --海面高度での風速に変換
-        local _, atm = calGravAndAtm(TurPy)
+        _, atm = calGravAndAtm(TurPy)
         windWv = windWv/atm
-        OUN(22, atm)
 
-        --目標の未来位置の初期値
-        tick = math.sqrt(TWLx^2 + TWLy^2 + TWLz)/(V0 + (isRocket and 600 or 0))
-        futureX, futureY, futureZ = predictTRD1(TWLx, TWLy, TWLz, Tvx, Tvy, Tvz, Tax, Tay, Taz, tick)
-        
-        tickPre = 0     --偏差終了判定に用いる到達時間
-
-        --弾道計算
-        --未来偏差イテレーション
-        for i = 1, 10 do
+        --仰角、方位角の初期値設定
+        do
+            --到達時間の初期値
+            tick = math.sqrt(TWLx^2 + TWLy^2 + TWLz)/(V0 + (isRocket and 600 or 0))
 
             --方位角仮定
-            futureXY = distance2(futureX, futureY)
+            futureX, futureY, futureZ = predictTRD1(TWLx, TWLy, TWLz, Tvx, Tvy, Tvz, Tax, Tay, Taz, tick)
             Azimuth = math.atan(futureX, futureY)
-
-            --yが砲弾前進方向
-            goalX = futureXY*math.sin(math.atan(futureX, futureY) - Azimuth)
-            goalY = futureXY*math.cos(math.atan(futureX, futureY) - Azimuth)
-            goalZ = futureZ
+            goalX, goalY, goalZ = calGoalXYZ(tick, Azimuth)
 
             --曲射解と直射解を解析式で求め、中間値を直射・曲射境界値に
             do
-                local function brentsTrajectory(a, b, V0)
-                    local c, fa, fb, fc, e
-                    fa = calTrajectoryZ(V0, K, a, goalY) - goalZ
-                    c, fc = a, fa
-                    e = b - a
-                    for i = 1, 10 do
-                        fb = calTrajectoryZ(V0, K, b, goalY) - goalZ
-                        a, b, c, fa, fc, e = brentsMethod(a, b, c, fa, fb, fc, e)
-                        if math.abs(b) < (0.1/360)*pi2 then
-                            break
-                        end
-                    end
-                    return b
-                end
-
                 local V0Border, A
 
                 --曲射/直射境界仰角条件
@@ -476,58 +471,147 @@ function onTick()
                 highAngleBorder = (directTheta + indirectTheta)/2
             end
 
-            OUN(28, indirectTheta)
-            OUN(29, directTheta)
-
             --仰角仮定
             Elevation = highAngleEnable and indirectTheta or directTheta
+        end
 
-            --仰角方位角イテレーション
-            for j = 1, 10 do
-                Iteration_j = j
+        --弾道計算イテレーション
+        for i = 1, 50 do
+            OUN(27, i)
 
-                OUN(26, j)
-                OUN(27, i)
+            --砲弾前進方向
+            goalX, goalY, goalZ = calGoalXYZ(tick, Azimuth)
 
-                --yが砲弾前進方向
-                goalX = futureXY*math.sin(math.atan(futureX, futureY) - Azimuth)
-                goalY = futureXY*math.cos(math.atan(futureX, futureY) - Azimuth)
-                goalZ = futureZ
+            --砲弾方向に風とビークル速度を成分分解
+            windVx = windWv*math.sin(windWdirec - Azimuth)
+            windVy = windWv*math.cos(windWdirec - Azimuth)
 
-                --砲弾方向に風とビークル速度を成分分解
-                windVx = windWv*math.sin(windWdirec - Azimuth)
-                windVy = windWv*math.cos(windWdirec - Azimuth)
+            --ビークル速度を加算した砲弾初速を計算
+            v0X = Wvxy*math.sin(WvxyDirec - Azimuth)
+            v0Y = V0*math.cos(Elevation) + Wvxy*math.cos(WvxyDirec - Azimuth)
+            v0Z = V0*math.sin(Elevation) + Wvz
 
-                v0X = Wvxy*math.sin(Wvxy_direc - Azimuth)
-                v0Y = V0*math.cos(Elevation) + Wvxy*math.cos(Wvxy_direc - Azimuth)
-                v0Z = V0*math.sin(Elevation) + Wvz
+            --ロケット
+            rocketAy = ROCKET_ACL*math.cos(Elevation)
+            rocketAz = ROCKET_ACL*math.sin(Elevation)
 
-                --ロケット
-                rocketAy = ROCKET_ACL*math.cos(Elevation)
-                rocketAz = ROCKET_ACL*math.sin(Elevation)
+            --数値積分で厳密解を求める
+            if highAngleEnable then --曲射
+                local MAX, G, x, y, z, vX, vY, vZ, stepT, aveAlt, isFalling, isArrived, lastZ, lastVz
+                MAX = math.sqrt(2*ALT_INTERVAL/g)
+                x, y, z = 0, 0, 0
+                vX, vY, vZ = v0X, v0Y, v0Z
+                G = g
+                tick = 0
+                lastZ, lastVz = z, vZ
 
-                --数値積分で厳密解を求める
-                if highAngleEnable then --曲射
-                    local MAX, G, x, y, z, vX, vY, vZ, stepT, aveAlt, isFalling, isArrived, lastZ, lastVz
-                    MAX = math.sqrt(2*ALT_INTERVAL/g)
-                    x, y, z = 0, 0, 0
-                    vX, vY, vZ = v0X, v0Y, v0Z
-                    G = g
-                    tick = 0
+                --ロケットの加速
+                if isRocket then
+                    tick = 60
+                    aveAlt = TurPy + z + (rocketAz - G)*(30^2)/2 + vZ*30
+                    G, atm = calGravAndAtm(aveAlt)
+                    x, vX = calTrajectoryXV(x, vX, -windVx*atm*WIND_INFLUENCE/60, 60, K)
+                    y, vY = calTrajectoryXV(y, vY, rocketAy - windVy*atm*WIND_INFLUENCE/60, 60, K)
+                    z, vZ = calTrajectoryXV(z, vZ, rocketAz - G, 60, K)
                     lastZ, lastVz = z, vZ
+                end
 
-                    --ロケットの加速
-                    if isRocket then
-                        tick = 60
-                        aveAlt = TurPy + z + (rocketAz - G)*(30^2)/2 + vZ*30
-                        G, atm = calGravAndAtm(aveAlt)
-                        x, vX = calTrajectoryXV(x, vX, -windVx*atm*WIND_INFLUENCE/60, 60, K)
-                        y, vY = calTrajectoryXV(y, vY, rocketAy - windVy*atm*WIND_INFLUENCE/60, 60, K)
-                        z, vZ = calTrajectoryXV(z, vZ, rocketAz - G, 60, K)
-                        lastZ, lastVz = z, vZ
+                --数値積分
+                for k = 1, 100 do
+                    --垂直方向初速より更新ステップと平均高度を決定
+                    stepT = clamp(math.abs(ALT_INTERVAL/vZ), 1, MAX)
+                    aveAlt = TurPy + z - G*((stepT/2)^2)/2 + vZ*(stepT/2)
+
+                    --重力加速度と気圧より、加速度を計算
+                    G, atm = calGravAndAtm(aveAlt)
+                    local ax, ay = -windVx*atm*WIND_INFLUENCE/60, -windVy*atm*WIND_INFLUENCE/60
+
+                    --ステップ後の位置計算
+                    z, vZ = calTrajectoryXV(z, vZ, -G, stepT, K)
+
+                    --頂点通過判定
+                    isFalling = vZ < 0
+                    --目標高度の通過判定
+                    isArrived = z < goalZ
+
+                    --目標を通過したら正確な位置とステップ幅を再計算(ニュートン法)
+                    if isFalling and isArrived then
+                        stepT, z = newtonsMethod(goalZ, lastZ, lastVz, -G, K, stepT/2)
                     end
 
-                    --数値積分
+                    --x, yも計算
+                    x, vX = calTrajectoryXV(x, vX, ax, stepT, K)
+                    y, vY = calTrajectoryXV(y, vY, ay, stepT, K)
+                    tick = tick + stepT
+
+                    if (isFalling and isArrived) or tick > tickDel then
+                        break
+                    end
+
+                    lastZ, lastVz = z, vZ
+                end
+                
+                OUN(23, x - goalX)
+                OUN(24, y - goalY)
+                OUN(25, z - goalZ)
+
+                --到達時間より未来位置計算
+                goalX, goalY, goalZ = calGoalXYZ(tick, Azimuth)
+
+                --イテレーション終了
+                if math.abs(goalY - y) < 0.1 and math.abs(x - goalX) < 0.1 then
+                    break
+                end
+
+                --仰角更新
+                if i == 1 then  --ブレント初期値設定
+                    aEl, faEl = Elevation, y - goalY
+                    if y < goalY then
+                        Elevation = highAngleBorder
+                    else
+                        Elevation = pi2/4
+                    end
+                    cEl, fcEl = aEl, faEl
+                    eEl = Elevation - aEl
+                else            --ブレント更新
+                    aEl, Elevation, cEl, faEl, fcEl, eEl = brentsMethod(aEl, Elevation, cEl, faEl, y - goalY, fcEl, eEl)
+                end
+
+                --方位角更新
+                Azimuth = Azimuth + (math.atan(goalX, goalY) - math.atan(x, y))
+            else                    --直射
+                local MAX, G, x, y, z, vX, vY, vZ, stepT, aveAlt, isArrived, lastY, lastVy
+                MAX = math.sqrt(2*ALT_INTERVAL/g)
+                x, y, z = 0, 0, 0
+                vX, vY, vZ = v0X, v0Y, v0Z
+                G = g
+                tick = 0
+                isArrived = false
+                lastY, lastVy = y, vY
+
+                --ロケットの加速
+                if isRocket then
+                    stepT = 60
+                    aveAlt = TurPy + z + (rocketAz - G)*(30^2)/2 + vZ*30
+                    G, atm = calGravAndAtm(aveAlt)
+                    
+                    y, vY = calTrajectoryXV(y, vY, rocketAy - windVy*atm*WIND_INFLUENCE/60, stepT, K)
+                    
+                    --目標y座標の通過判定
+                    isArrived = y > goalY
+
+                    --目標を通過したら正確な位置とステップ幅を再計算(ニュートン法)
+                    if isArrived then
+                        stepT, y = newtonsMethod(goalY, 0, v0Y, rocketAy - windVy*atm*WIND_INFLUENCE/60, K, stepT/2)
+                    end
+                    x, vX = calTrajectoryXV(x, vX, -windVx*atm*WIND_INFLUENCE/60, stepT, K)
+                    z, vZ = calTrajectoryXV(z, vZ, rocketAz - G, stepT, K)
+                    tick = stepT
+                    lastY, lastVy = y, vY
+                end
+
+                --数値積分
+                if not isArrived then
                     for k = 1, 100 do
                         --垂直方向初速より更新ステップと平均高度を決定
                         stepT = clamp(math.abs(ALT_INTERVAL/vZ), 1, MAX)
@@ -538,158 +622,60 @@ function onTick()
                         local ax, ay = -windVx*atm*WIND_INFLUENCE/60, -windVy*atm*WIND_INFLUENCE/60
 
                         --ステップ後の位置計算
-                        z, vZ = calTrajectoryXV(z, vZ, -G, stepT, K)
-
-                        --頂点通過判定
-                        isFalling = vZ < 0
-                        --目標高度の通過判定
-                        isArrived = z < goalZ
-
-                        --目標を通過したら正確な位置とステップ幅を再計算(ニュートン法)
-                        if isFalling and isArrived then
-                            stepT, z = newtonsMethod(goalZ, lastZ, lastVz, -G, K, stepT/2)
-                        end
-
-                        --x, yも計算
-                        x, vX = calTrajectoryXV(x, vX, ax, stepT, K)
                         y, vY = calTrajectoryXV(y, vY, ay, stepT, K)
-                        tick = tick + stepT
 
-                        if (isFalling and isArrived) or tick > tickDel then
-                            break
-                        end
-
-                        lastZ, lastVz = z, vZ
-                    end
-                    
-                    OUN(23, x - goalX)
-                    OUN(24, y - goalY)
-                    OUN(25, z - goalZ)
-
-                    --イテレーション終了
-                    if math.abs(goalY - y) < 0.1 and math.abs(x - goalX) < 0.1 then
-                        break
-                    end
-
-                    --仰角更新
-                    if j == 1 then  --ブレント初期値設定
-                        aEl, faEl = Elevation, y - goalY
-                        if y < goalY then
-                            Elevation = highAngleBorder
-                        else
-                            Elevation = pi2/4
-                        end
-                        cEl, fcEl = aEl, faEl
-                        eEl = Elevation - aEl
-                    else            --ブレント更新
-                        aEl, Elevation, cEl, faEl, fcEl, eEl = brentsMethod(aEl, Elevation, cEl, faEl, y - goalY, fcEl, eEl)
-                    end
-
-                    --方位角更新
-                    Azimuth = Azimuth + (math.atan(goalX, goalY) - math.atan(x, y))
-                else                    --直射
-                    local MAX, G, x, y, z, vX, vY, vZ, stepT, aveAlt, isArrived, lastY, lastVy
-                    MAX = math.sqrt(2*ALT_INTERVAL/g)
-                    x, y, z = 0, 0, 0
-                    vX, vY, vZ = v0X, v0Y, v0Z
-                    G = g
-                    tick = 0
-                    isArrived = false
-                    lastY, lastVy = y, vY
-
-                    --ロケットの加速
-                    if isRocket then
-                        stepT = 60
-                        aveAlt = TurPy + z + (rocketAz - G)*(30^2)/2 + vZ*30
-                        G, atm = calGravAndAtm(aveAlt)
-                        
-                        y, vY = calTrajectoryXV(y, vY, rocketAy - windVy*atm*WIND_INFLUENCE/60, stepT, K)
-                        
-                        --目標y座標の通過判定
+                        --目標高度の通過判定
                         isArrived = y > goalY
 
                         --目標を通過したら正確な位置とステップ幅を再計算(ニュートン法)
                         if isArrived then
-                            stepT, y = newtonsMethod(goalY, 0, v0Y, rocketAy - windVy*atm*WIND_INFLUENCE/60, K, stepT/2)
+                            stepT, y = newtonsMethod(goalY, lastY, lastVy, ay, K, stepT/2)
                         end
-                        x, vX = calTrajectoryXV(x, vX, -windVx*atm*WIND_INFLUENCE/60, stepT, K)
-                        z, vZ = calTrajectoryXV(z, vZ, rocketAz - G, stepT, K)
-                        tick = stepT
+
+                        --x, zも計算
+                        x, vX = calTrajectoryXV(x, vX, ax, stepT, K)
+                        z, vZ = calTrajectoryXV(z, vZ, -G, stepT, K)
+                        tick = tick + stepT
+
+                        if isArrived or tick > tickDel then
+                            break
+                        end
+
                         lastY, lastVy = y, vY
                     end
-
-                    --数値積分
-                    if not isArrived then
-                        for k = 1, 100 do
-                            --垂直方向初速より更新ステップと平均高度を決定
-                            stepT = clamp(math.abs(ALT_INTERVAL/vZ), 1, MAX)
-                            aveAlt = TurPy + z - G*((stepT/2)^2)/2 + vZ*(stepT/2)
-
-                            --重力加速度と気圧より、加速度を計算
-                            G, atm = calGravAndAtm(aveAlt)
-                            local ax, ay = -windVx*atm*WIND_INFLUENCE/60, -windVy*atm*WIND_INFLUENCE/60
-
-                            --ステップ後の位置計算
-                            y, vY = calTrajectoryXV(y, vY, ay, stepT, K)
-
-                            --目標高度の通過判定
-                            isArrived = y > goalY
-
-                            --目標を通過したら正確な位置とステップ幅を再計算(ニュートン法)
-                            if isArrived then
-                                stepT, y = newtonsMethod(goalY, lastY, lastVy, ay, K, stepT/2)
-                            end
-
-                            --x, zも計算
-                            x, vX = calTrajectoryXV(x, vX, ax, stepT, K)
-                            z, vZ = calTrajectoryXV(z, vZ, -G, stepT, K)
-                            tick = tick + stepT
-
-                            if isArrived or tick > tickDel then
-                                break
-                            end
-
-                            lastY, lastVy = y, vY
-                        end
-                    end
-
-                    OUN(23, x - goalX)
-                    OUN(24, y - goalY)
-                    OUN(25, z - goalZ)
-
-                    --イテレーション終了
-                    if math.abs(goalZ - z) < 0.1 and math.abs(x - goalX) < 0.1 then
-                        break
-                    end
-
-                    --仰角更新
-                    if j == 1 then  --ブレント初期値設定
-                        aEl, faEl = Elevation, z - goalZ
-                        if z >= goalZ then
-                            Elevation = math.atan(goalZ, goalY)
-                        else
-                            Elevation = highAngleBorder
-                        end
-                        cEl, fcEl = aEl, faEl
-                        eEl = Elevation - aEl
-                    else            --ブレント更新
-                        aEl, Elevation, cEl, faEl, fcEl, eEl = brentsMethod(aEl, Elevation, cEl, faEl, z - goalZ, fcEl, eEl)
-                    end
-
-                    --方位角更新
-                    Azimuth = Azimuth + (math.atan(goalX, goalY) - math.atan(x, y))
                 end
+
+                OUN(23, x - goalX)
+                OUN(24, y - goalY)
+                OUN(25, z - goalZ)
+
+                --到達時間より未来位置計算
+                goalX, goalY, goalZ = calGoalXYZ(tick, Azimuth)
+
+                --イテレーション終了
+                if math.abs(goalZ - z) < 0.1 and math.abs(x - goalX) < 0.1 then
+                    break
+                end
+
+                --仰角更新
+                if i == 1 then  --ブレント初期値設定
+                    aEl, faEl = Elevation, z - goalZ
+                    if z >= goalZ then
+                        Elevation = math.atan(goalZ, goalY)
+                    else
+                        Elevation = highAngleBorder
+                    end
+                    cEl, fcEl = aEl, faEl
+                    eEl = Elevation - aEl
+                else            --ブレント更新
+                    aEl, Elevation, cEl, faEl, fcEl, eEl = brentsMethod(aEl, Elevation, cEl, faEl, z - goalZ, fcEl, eEl)
+                end
+
+                --方位角更新
+                Azimuth = Azimuth + (math.atan(goalX, goalY) - math.atan(x, y))
             end
 
-            inRange = tick < tickDel and Iteration_j ~= 10
-
-            --tickより、目標未来位置計算
-            futureX, futureY, futureZ = predictTRD1(TWLx, TWLy, TWLz, Tvx, Tvy, Tvz, Tax, Tay, Taz, tick)
-            --未来位置偏差終了
-            if math.abs(tickPre - tick) < 0.01 then
-                break
-            end
-            tickPre = tick
+            inRange = tick < tickDel and i ~= 20
         end
     else
         Azimuth, Elevation = 0, 0
@@ -723,8 +709,6 @@ function onTick()
         targetPitch, targetYaw = 0, 0
         tick = 0
     end
-
-
 
     --射撃可能判定
     currentInFOV = same_rotation(currentYaw) > MIN_YAW and same_rotation(currentYaw) < MAX_YAW and currentPitch > MIN_PITCH and currentPitch < MAX_PITCH
@@ -765,12 +749,8 @@ function onTick()
     end
 
     --ゼロ除算対策
-    if pitch ~= pitch then
-        pitch = 0
-    end
-    if yaw ~= yaw then
-        yaw = 0
-    end
+    pitch = (pitch ~= pitch) and 0 or pitch
+    yaw = (yaw ~= yaw) and 0 or yaw
 
     OUN(1, pitch)
     OUN(2, yaw)
