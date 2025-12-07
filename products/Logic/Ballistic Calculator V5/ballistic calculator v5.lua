@@ -59,7 +59,8 @@ ROCKET_ACL = 600/3600
 ROCKET_ACL_TICK = 60
 tick = 0
 TRD1_DELAY = 0
-STABI_DELAY = 7.45
+STABI_DELAY_VELO = 7.45
+STABI_DELAY_ROBO = 7.45
 P = 8
 I = 0
 D = 20
@@ -476,118 +477,42 @@ function onTick()
         end
 
         --弾道計算イテレーション
-        for i = 1, 50 do
-            OUN(27, i)
 
-            --砲弾前進方向
-            goalX, goalY, goalZ = calGoalXYZ(tick, Azimuth)
 
-            --砲弾方向に風とビークル速度を成分分解
-            windVx = windWv*math.sin(windWdirec - Azimuth)
-            windVy = windWv*math.cos(windWdirec - Azimuth)
+        --方位角イテレーション
+        for j = 1, 10 do
+            finish = false
+            for i = 1, 10 do
+                OUN(27, i)
+                OUN(22, j)
 
-            --ビークル速度を加算した砲弾初速を計算
-            v0X = Wvxy*math.sin(WvxyDirec - Azimuth)
-            v0Y = V0*math.cos(Elevation) + Wvxy*math.cos(WvxyDirec - Azimuth)
-            v0Z = V0*math.sin(Elevation) + Wvz
+                --砲弾前進方向
+                goalX, goalY, goalZ = calGoalXYZ(tick, Azimuth)
 
-            --ロケット
-            rocketAy = ROCKET_ACL*math.cos(Elevation)
-            rocketAz = ROCKET_ACL*math.sin(Elevation)
+                --砲弾方向に風とビークル速度を成分分解
+                windVx = windWv*math.sin(windWdirec - Azimuth)
+                windVy = windWv*math.cos(windWdirec - Azimuth)
 
-            --数値積分で厳密解を求める
-            if highAngleEnable then --曲射
-                local MAX, G, x, y, z, vX, vY, vZ, stepT, aveAlt, isFalling, isArrived, lastZ, lastVz
-                MAX = math.sqrt(2*ALT_INTERVAL/g)
-                x, y, z = 0, 0, 0
-                vX, vY, vZ = v0X, v0Y, v0Z
+                --ビークル速度を加算した砲弾初速を計算
+                v0X = Wvxy*math.sin(WvxyDirec - Azimuth)
+                v0Y = V0*math.cos(Elevation) + Wvxy*math.cos(WvxyDirec - Azimuth)
+                v0Z = V0*math.sin(Elevation) + Wvz
+
+                --ロケット
+                rocketAy = ROCKET_ACL*math.cos(Elevation)
+                rocketAz = ROCKET_ACL*math.sin(Elevation)
+
+                --数値積分初期値
+                x, y, z, vX, vY, vZ = 0, 0, 0, v0X, v0Y, v0Z
+
+                local MAX_STEP, G, stepT, aveAlt, lastZ, lastVz, lastY, lastVy
+                MAX_STEP = math.sqrt(2*ALT_INTERVAL/g)
                 G = g
                 tick = 0
                 lastZ, lastVz = z, vZ
-
-                --ロケットの加速
-                if isRocket then
-                    tick = 60
-                    aveAlt = TurPy + z + (rocketAz - G)*(30^2)/2 + vZ*30
-                    G, atm = calGravAndAtm(aveAlt)
-                    x, vX = calTrajectoryXV(x, vX, -windVx*atm*WIND_INFLUENCE/60, 60, K)
-                    y, vY = calTrajectoryXV(y, vY, rocketAy - windVy*atm*WIND_INFLUENCE/60, 60, K)
-                    z, vZ = calTrajectoryXV(z, vZ, rocketAz - G, 60, K)
-                    lastZ, lastVz = z, vZ
-                end
-
-                --数値積分
-                for k = 1, 100 do
-                    --垂直方向初速より更新ステップと平均高度を決定
-                    stepT = clamp(math.abs(ALT_INTERVAL/vZ), 1, MAX)
-                    aveAlt = TurPy + z - G*((stepT/2)^2)/2 + vZ*(stepT/2)
-
-                    --重力加速度と気圧より、加速度を計算
-                    G, atm = calGravAndAtm(aveAlt)
-                    local ax, ay = -windVx*atm*WIND_INFLUENCE/60, -windVy*atm*WIND_INFLUENCE/60
-
-                    --ステップ後の位置計算
-                    z, vZ = calTrajectoryXV(z, vZ, -G, stepT, K)
-
-                    --頂点通過判定
-                    isFalling = vZ < 0
-                    --目標高度の通過判定
-                    isArrived = z < goalZ
-
-                    --目標を通過したら正確な位置とステップ幅を再計算(ニュートン法)
-                    if isFalling and isArrived then
-                        stepT, z = newtonsMethod(goalZ, lastZ, lastVz, -G, K, stepT/2)
-                    end
-
-                    --x, yも計算
-                    x, vX = calTrajectoryXV(x, vX, ax, stepT, K)
-                    y, vY = calTrajectoryXV(y, vY, ay, stepT, K)
-                    tick = tick + stepT
-
-                    if (isFalling and isArrived) or tick > tickDel then
-                        break
-                    end
-
-                    lastZ, lastVz = z, vZ
-                end
-                
-                OUN(23, x - goalX)
-                OUN(24, y - goalY)
-                OUN(25, z - goalZ)
-
-                --到達時間より未来位置計算
-                goalX, goalY, goalZ = calGoalXYZ(tick, Azimuth)
-
-                --イテレーション終了
-                if math.abs(goalY - y) < 0.1 and math.abs(x - goalX) < 0.1 then
-                    break
-                end
-
-                --仰角更新
-                if i == 1 then  --ブレント初期値設定
-                    aEl, faEl = Elevation, y - goalY
-                    if y < goalY then
-                        Elevation = highAngleBorder
-                    else
-                        Elevation = pi2/4
-                    end
-                    cEl, fcEl = aEl, faEl
-                    eEl = Elevation - aEl
-                else            --ブレント更新
-                    aEl, Elevation, cEl, faEl, fcEl, eEl = brentsMethod(aEl, Elevation, cEl, faEl, y - goalY, fcEl, eEl)
-                end
-
-                --方位角更新
-                Azimuth = Azimuth + (math.atan(goalX, goalY) - math.atan(x, y))
-            else                    --直射
-                local MAX, G, x, y, z, vX, vY, vZ, stepT, aveAlt, isArrived, lastY, lastVy
-                MAX = math.sqrt(2*ALT_INTERVAL/g)
-                x, y, z = 0, 0, 0
-                vX, vY, vZ = v0X, v0Y, v0Z
-                G = g
-                tick = 0
-                isArrived = false
                 lastY, lastVy = y, vY
+
+                isArrived = false
 
                 --ロケットの加速
                 if isRocket then
@@ -598,7 +523,7 @@ function onTick()
                     y, vY = calTrajectoryXV(y, vY, rocketAy - windVy*atm*WIND_INFLUENCE/60, stepT, K)
                     
                     --目標y座標の通過判定
-                    isArrived = y > goalY
+                    isArrived = y > goalY and not highAngleEnable
 
                     --目標を通過したら正確な位置とステップ幅を再計算(ニュートン法)
                     if isArrived then
@@ -614,27 +539,40 @@ function onTick()
                 if not isArrived then
                     for k = 1, 100 do
                         --垂直方向初速より更新ステップと平均高度を決定
-                        stepT = clamp(math.abs(ALT_INTERVAL/vZ), 1, MAX)
+                        stepT = clamp(math.abs(ALT_INTERVAL/vZ), 1, MAX_STEP)
                         aveAlt = TurPy + z - G*((stepT/2)^2)/2 + vZ*(stepT/2)
 
                         --重力加速度と気圧より、加速度を計算
                         G, atm = calGravAndAtm(aveAlt)
                         local ax, ay = -windVx*atm*WIND_INFLUENCE/60, -windVy*atm*WIND_INFLUENCE/60
 
-                        --ステップ後の位置計算
-                        y, vY = calTrajectoryXV(y, vY, ay, stepT, K)
+                        --ステップ後の位置計算、通過判定、残り計算
+                        if highAngleEnable then     --曲射
+                            z, vZ = calTrajectoryXV(z, vZ, -G, stepT, K)
 
-                        --目標高度の通過判定
-                        isArrived = y > goalY
+                            --目標を通過したら正確な位置とステップ幅を再計算(ニュートン法)
+                            if z < goalZ and vZ < 0 then
+                                stepT, z = newtonsMethod(goalZ, lastZ, lastVz, -G, K, stepT/2)
+                                isArrived = true
+                            end
 
-                        --目標を通過したら正確な位置とステップ幅を再計算(ニュートン法)
-                        if isArrived then
-                            stepT, y = newtonsMethod(goalY, lastY, lastVy, ay, K, stepT/2)
+                            --yも計算
+                            y, vY = calTrajectoryXV(y, vY, ay, stepT, K)
+                        else                        --直射
+                            y, vY = calTrajectoryXV(y, vY, ay, stepT, K)
+
+                            --目標を通過したら正確な位置とステップ幅を再計算(ニュートン法)
+                            if y > goalY then
+                                stepT, y = newtonsMethod(goalY, lastY, lastVy, ay, K, stepT/2)
+                                isArrived = true
+                            end
+
+                            --zも計算
+                            z, vZ = calTrajectoryXV(z, vZ, -G, stepT, K)
                         end
 
-                        --x, zも計算
+                        --xも計算
                         x, vX = calTrajectoryXV(x, vX, ax, stepT, K)
-                        z, vZ = calTrajectoryXV(z, vZ, -G, stepT, K)
                         tick = tick + stepT
 
                         if isArrived or tick > tickDel then
@@ -642,40 +580,61 @@ function onTick()
                         end
 
                         lastY, lastVy = y, vY
+                        lastZ, lastVz = z, vZ
                     end
                 end
+
+                --到達時間より未来位置計算
+                goalX, goalY, goalZ = calGoalXYZ(tick, Azimuth)
 
                 OUN(23, x - goalX)
                 OUN(24, y - goalY)
                 OUN(25, z - goalZ)
 
-                --到達時間より未来位置計算
-                goalX, goalY, goalZ = calGoalXYZ(tick, Azimuth)
+                fbEl = highAngleEnable and (y - goalY) or (z - goalZ)
+                inRange = tick < tickDel and i ~= 10
 
                 --イテレーション終了
-                if math.abs(goalZ - z) < 0.1 and math.abs(x - goalX) < 0.1 then
+                if math.abs(fbEl) < 0.1 then
+                    finish = true
                     break
                 end
 
                 --仰角更新
-                if i == 1 then  --ブレント初期値設定
-                    aEl, faEl = Elevation, z - goalZ
-                    if z >= goalZ then
+                if i == 1 then   --ブレント初期値設定(収束しないならリセット)
+                    aEl, faEl = Elevation, fbEl
+                    if y > goalY and highAngleEnable then
+                        Elevation = pi2/4
+                    elseif z > goalZ and not highAngleEnable then
                         Elevation = math.atan(goalZ, goalY)
                     else
                         Elevation = highAngleBorder
                     end
                     cEl, fcEl = aEl, faEl
                     eEl = Elevation - aEl
-                else            --ブレント更新
-                    aEl, Elevation, cEl, faEl, fcEl, eEl = brentsMethod(aEl, Elevation, cEl, faEl, z - goalZ, fcEl, eEl)
+                else                --ブレント更新
+                    aEl, Elevation, cEl, faEl, fcEl, eEl = brentsMethod(aEl, Elevation, cEl, faEl, fbEl, fcEl, eEl)
                 end
-
-                --方位角更新
-                Azimuth = Azimuth + (math.atan(goalX, goalY) - math.atan(x, y))
             end
 
-            inRange = tick < tickDel and i ~= 20
+            if finish and math.abs(x - goalX) < 0.1 then
+                break
+            end
+
+            --方位角更新
+            if j == 1 then      --ブレント初期値設定
+                aAz, faAz = Azimuth, x - goalX
+                local nextAzOffset = highAngleEnable and pi2/2 or pi2/4
+                if faAz < 0 then
+                    Azimuth = Azimuth + nextAzOffset
+                else
+                    Azimuth = Azimuth - nextAzOffset
+                end
+                cAz, fcAz = aAz, faAz
+                eAz = Azimuth - aAz
+            else                --ブレント更新
+                aAz, Azimuth, cAz, faAz, fcAz, eAz = brentsMethod(aAz, Azimuth, cAz, faAz, x - goalX, fcAz, eAz)
+            end
         end
     else
         Azimuth, Elevation = 0, 0
@@ -695,10 +654,17 @@ function onTick()
         --視線角速度計算
         losX, losY, losZ = losRv(TurPx, TurPy, TurPz, BodEx, BodEy, BodEz, BodPvx, BodPvy, BodPvz, BodPrvx, BodPrvy, BodPrvz, Tx, Ty, Tz, Tvx, Tvy, Tvz)
 
-        --向くべき未来位置計算
-        srabiLx, srabiLy, srabiLz = stabiFutureAngle(srabiLx, srabiLy, srabiLz, losX, losY, losZ, STABI_DELAY)
+        --向くべき未来位置計算(速度ピボット)
+        srabiLx, srabiLy, srabiLz = stabiFutureAngle(srabiLx, srabiLy, srabiLz, losX, losY, losZ, STABI_DELAY_VELO)
         stabiPitch, stabiYaw = rect2Polar(srabiLx, srabiLy, srabiLz, false)
         stabiYaw = same_rotation(stabiYaw - STANDBY_YAW)
+
+        --向くべき未来位置計算(ロボティックピボット)
+        srabiLx, srabiLy, srabiLz = stabiFutureAngle(srabiLx, srabiLy, srabiLz, losX, losY, losZ, -PITCH_PIVOT*STABI_DELAY_ROBO)
+        roboticPitch, _ = rect2Polar(srabiLx, srabiLy, srabiLz, false)
+        srabiLx, srabiLy, srabiLz = stabiFutureAngle(srabiLx, srabiLy, srabiLz, losX, losY, losZ, -YAW_PIVOT*STABI_DELAY_ROBO)
+        _, roboticYaw = rect2Polar(srabiLx, srabiLy, srabiLz, false)
+        roboticYaw = same_rotation(roboticYaw - STANDBY_YAW)
 
         if reloadEnable then
             stabiPitch = 0
@@ -711,46 +677,55 @@ function onTick()
     end
 
     --射撃可能判定
-    currentInFOV = same_rotation(currentYaw) > MIN_YAW and same_rotation(currentYaw) < MAX_YAW and currentPitch > MIN_PITCH and currentPitch < MAX_PITCH
-    targetInFOVPitch = targetPitch > MIN_PITCH and targetPitch < MAX_PITCH
-    targetInFOVYaw = targetYaw > MIN_YAW and targetYaw < MAX_YAW
-    pitchError = math.abs(same_rotation(targetPitch - currentPitch))*360
-    yawError = math.abs(same_rotation(targetYaw - STANDBY_YAW - currentYaw))*360
-    inError = pitchError < PIVOT_MAX_ERROR and yawError < PIVOT_MAX_ERROR
-    shootable = inRange and inError and currentInFOV and targetInFOVPitch and targetInFOVYaw and not reloadEnable
-
-    --fov外処理
-    if not targetInFOVPitch and PITCH_LIMIT_ENABLE then
-        stabiPitch = 0
-    end
-    if not targetInFOVYaw and YAW_LIMIT_ENABLE then
-        stabiYaw = 0
+    do
+        currentInFOV = same_rotation(currentYaw) > MIN_YAW and same_rotation(currentYaw) < MAX_YAW and currentPitch > MIN_PITCH and currentPitch < MAX_PITCH
+        targetInFOVPitch = targetPitch > MIN_PITCH and targetPitch < MAX_PITCH
+        targetInFOVYaw = targetYaw > MIN_YAW and targetYaw < MAX_YAW
+        pitchError = math.abs(same_rotation(targetPitch - currentPitch))*360
+        yawError = math.abs(same_rotation(targetYaw - STANDBY_YAW - currentYaw))*360
+        inError = pitchError < PIVOT_MAX_ERROR and yawError < PIVOT_MAX_ERROR
+        shootable = inRange and inError and currentInFOV and targetInFOVPitch and targetInFOVYaw and not reloadEnable
     end
 
-    --差分へ
-    pitch_diff = stabiPitch - currentPitch
-    if YAW_LIMIT_ENABLE then
-        yaw_diff = stabiYaw - currentYaw
-    else
-        yaw_diff = same_rotation(stabiYaw - currentYaw)
-    end
+    --駆動系
+    do
+        --fov外処理
+        if not targetInFOVPitch and PITCH_LIMIT_ENABLE then
+            stabiPitch = 0
+        end
+        if not targetInFOVYaw and YAW_LIMIT_ENABLE then
+            stabiYaw = 0
+        end
 
-    --PID
-    pitch, pitchErrorSum, pitchErrorPre = PID(P, I, D, 0, -pitch_diff*PITCH_PIVOT, pitchErrorSum, pitchErrorPre, -PITCH_PIVOT*MAX_SPEED_GAIN, PITCH_PIVOT*MAX_SPEED_GAIN)
-    yaw, yawErrorSum, yawErrorPre = PID(P, I, D, 0, -yaw_diff*YAW_PIVOT, yawErrorSum, yawErrorPre, -YAW_PIVOT*MAX_SPEED_GAIN, YAW_PIVOT*MAX_SPEED_GAIN)
+        --差分へ
+        pitchDiff = stabiPitch - currentPitch
+        yawDiff = YAW_LIMIT_ENABLE and (stabiYaw - currentYaw) or same_rotation(stabiYaw - currentYaw)
 
-    --ピッチ角制限
-    if PITCH_LIMIT_ENABLE then
-        pitch = limit_rotation(pitch, same_rotation(currentPitch), MIN_PITCH, MAX_PITCH)
-    end
-    --ヨー角制限
-    if YAW_LIMIT_ENABLE then
-        yaw = limit_rotation(yaw, same_rotation(currentYaw), MIN_YAW, MAX_YAW)
-    end
+        --PID
+        pitch, pitchErrorSum, pitchErrorPre = PID(P, I, D, 0, -pitchDiff*PITCH_PIVOT, pitchErrorSum, pitchErrorPre, -PITCH_PIVOT*MAX_SPEED_GAIN, PITCH_PIVOT*MAX_SPEED_GAIN)
+        yaw, yawErrorSum, yawErrorPre = PID(P, I, D, 0, -yawDiff*YAW_PIVOT, yawErrorSum, yawErrorPre, -YAW_PIVOT*MAX_SPEED_GAIN, YAW_PIVOT*MAX_SPEED_GAIN)
 
-    --ゼロ除算対策
-    pitch = (pitch ~= pitch) and 0 or pitch
-    yaw = (yaw ~= yaw) and 0 or yaw
+        --ピッチ角制限
+        if PITCH_LIMIT_ENABLE then
+            pitch = limit_rotation(pitch, same_rotation(currentPitch), MIN_PITCH, MAX_PITCH)
+        end
+        --ヨー角制限
+        if YAW_LIMIT_ENABLE then
+            yaw = limit_rotation(yaw, same_rotation(currentYaw), MIN_YAW, MAX_YAW)
+        end
+
+        --ロボティックピボットの場合
+        if PITCH_PIVOT < 0 then
+            pitch = PITCH_LIMIT_ENABLE and clamp(roboticPitch*4, MIN_PITCH, MAX_PITCH) or roboticPitch*4
+        end
+        if YAW_PIVOT < 0 then
+            yaw = YAW_LIMIT_ENABLE and clamp(roboticYaw*4, MIN_YAW, MAX_YAW) or roboticYaw*4
+        end
+
+        --ゼロ除算対策
+        pitch = (pitch ~= pitch) and 0 or pitch
+        yaw = (yaw ~= yaw) and 0 or yaw
+    end
 
     OUN(1, pitch)
     OUN(2, yaw)
