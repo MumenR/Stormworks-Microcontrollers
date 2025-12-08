@@ -60,7 +60,7 @@ ROCKET_ACL_TICK = 60
 tick = 0
 TRD1_DELAY = 0
 STABI_DELAY_VELO = 7.45
-STABI_DELAY_ROBO = 7.45
+STABI_DELAY_ROBO = 0.28
 P = 8
 I = 0
 D = 20
@@ -476,12 +476,11 @@ function onTick()
             Elevation = highAngleEnable and indirectTheta or directTheta
         end
 
-        --弾道計算イテレーション
-
-
         --方位角イテレーション
         for j = 1, 10 do
             finish = false
+
+            --仰角イテレーション
             for i = 1, 10 do
                 OUN(27, i)
                 OUN(22, j)
@@ -668,9 +667,11 @@ function onTick()
 
         if reloadEnable then
             stabiPitch = 0
+            roboticPitch = 0
         end
     else
         stabiPitch, stabiYaw = 0, 0
+        roboticPitch, roboticYaw = 0, 0
         srabiLx, srabiLy, srabiLz = 0, 1, 0
         targetPitch, targetYaw = 0, 0
         tick = 0
@@ -716,10 +717,10 @@ function onTick()
 
         --ロボティックピボットの場合
         if PITCH_PIVOT < 0 then
-            pitch = PITCH_LIMIT_ENABLE and clamp(roboticPitch*4, MIN_PITCH, MAX_PITCH) or roboticPitch*4
+            pitch = PITCH_LIMIT_ENABLE and clamp(roboticPitch, MIN_PITCH, MAX_PITCH)*4 or roboticPitch*4
         end
         if YAW_PIVOT < 0 then
-            yaw = YAW_LIMIT_ENABLE and clamp(roboticYaw*4, MIN_YAW, MAX_YAW) or roboticYaw*4
+            yaw = YAW_LIMIT_ENABLE and clamp(roboticYaw, MIN_YAW, MAX_YAW)*4 or roboticYaw*4
         end
 
         --ゼロ除算対策
