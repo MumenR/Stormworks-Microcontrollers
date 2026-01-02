@@ -31,7 +31,7 @@ do
     simulator:setProperty("Turret phy. offset x (m)", 0)
     simulator:setProperty("Turret phy. offset y (m)", 0)
     simulator:setProperty("Turret phy. offset z (m)", 0)
-    simulator:setProperty("Weapon Type", 1)
+
 
     -- Runs every tick just before onTick; allows you to simulate the inputs changing
     ---@param simulator Simulator Use simulator:<function>() to set inputs etc.
@@ -45,7 +45,7 @@ do
         simulator:setInputNumber(2, 4000)
         simulator:setInputNumber(3, 0)
 
-        for i = 1, 3 do
+        for i = 1, 4 do
            simulator:setInputBool(i, simulator:getIsToggled(i))
         end
     end;
@@ -81,7 +81,6 @@ ALT_INTERVAL = 500  --数値積分の高度間隔[m]
 
 INFTY = 10000
 PIVOT_MAX_ERROR = 2 --degree
-NEWTON_ERROR = 0.01  --ニュートン法における距離誤差[m]
 
 parameter = {
     {600, 0.0005, 2400, 0.105}, --Bertha
@@ -98,18 +97,20 @@ parameter = {
 do
     --足し算
     function add(a, b)
+        ans = {}
         for i = 1, #a do
-            a[i] = a[i] + b[i]
+            ans[i] = a[i] + b[i]
         end
-        return a
+        return ans
     end
 
     --スカラー倍(k*aの順序のみ)
     function mul(k, a)
+        ans = {}
         for i = 1, #a do
-            a[i] = k*a[i]
+            ans[i] = k*a[i]
         end
-        return a
+        return ans
     end
 end
 
@@ -167,16 +168,18 @@ do
 
     --RKF45の時間微分関数(s: {x, y, z, vx, vy, vz})
     function RKF45dfdt(s)
+        debug1 = debug1 + 1
+
         RKF45vx, RKF45vy, RKF45vz = s[4], s[5], s[6]
-        g, atm = calGravAndAtm(z)
+        g, atm = calGravAndAtm(s[3])
         RKF45ax = -windVx*atm*WIND_INFLUENCE/60 - K*RKF45vx
-        RKF45ay = -windVy*atm*WIND_INFLUENCE/60 - K*RKF45vx
-        RKF45az = -g - K*RKF45vx
+        RKF45ay = -windVy*atm*WIND_INFLUENCE/60 - K*RKF45vy
+        RKF45az = -g - K*RKF45vz
         return {RKF45vx, RKF45vy, RKF45vz, RKF45ax, RKF45ay, RKF45az}
     end
 
     --RKF45で次のステップの値を求める
-    RKF45Error = 0.1
+    RKF45Error = 1
     function RKF45Trajectory(h, s)
         A = {
             {1/4},
@@ -191,7 +194,7 @@ do
         k = {RKF45dfdt(s)}      --k[7]が4次、k[8]が5次
         while true do
             for i = 2, 8 do
-                tmp = s
+                tmp = {table.unpack(s)}
                 for j = 1, math.min(i - 1, 6) do
                     tmp = add(tmp, mul(h*A[i - 1][j], k[j]))
                 end
@@ -199,8 +202,8 @@ do
             end
             error = add(k[8], mul(-1, k[7]))
             error = math.sqrt(error[1]^2 + error[2]^2 + error[3]^2 + error[4]^2 + error[5]^2 + error[6]^2)
-            h = clamp(0.85*h*(RKF45Error/error)^0.2, 1, 300)
-            if error <= RKF45Error or h == 1 or h == 300 then
+            h = clamp(0.85*h*(RKF45Error/error)^0.2, 1, 1000)
+            if error <= RKF45Error or h == 1 or h == 1000 then
                 return h, k[8]
             end
         end
@@ -209,11 +212,11 @@ do
     --ブレント法(b:最良, a:bと逆符号, f:評価に使う関数, times:最大ループ回数, error:許容誤差)
     --return: b
     function brentsMethod(a, b, fa, fb, f, times, error)
+        local c, fc, e, d, alpha, beta, p, q, r
         c, fc = a, fa
         e = b - a
         d = e
         for i = 1, times do
-            local alpha, beta
             if fa*fb > 0 then                   --a, bが同符号の場合入れ替え
                 a = c
                 fa = fc
@@ -231,7 +234,6 @@ do
             if math.abs(fc) < math.abs(fb) then --二分法
                 d, e = alpha, alpha
             else
-                local p, q, r
                 if a == c then                  --線形補間
                     p = 2*alpha*beta
                     q = 1 - beta
@@ -253,12 +255,12 @@ do
 
             b, c = b + d, b
             fc = fb
+            fb = f(b)
 
             --評価、更新
-            if math.abs(fb) < error then
+            if math.abs(fb) < error or i == times then
                 return b
             end
-            fb = f(b)
         end
     end
 
@@ -512,7 +514,7 @@ function onTick()
                 directTheta = brentsMethod(highAngleBorder, math.atan(goalZ, goalY), brentsFunc(highAngleBorder), brentsFunc(math.atan(goalZ, goalY)), brentsFunc, 10, (0.1/360)*pi2)
 
                 --曲射解
-                indirectTheta = brentsMethod(highAngleBorder, pi2/4 - (0.1/360)*pi2, brentsFunc(highAngleBorder), brentsFunc(pi2/4 - (0.1/360)*pi2), brentsFunc, 10, (0.1/360)*pi2)
+                indirectTheta = brentsMethod(highAngleBorder, math.acos(K*goalY/V0) - 0.001, brentsFunc(highAngleBorder), brentsFunc(math.acos(K*goalY/V0) - 0.001), brentsFunc, 10, (0.1/360)*pi2)
 
                 --境界条件をより余裕のある値へ(平均)
                 highAngleBorder = (directTheta + indirectTheta)/2
@@ -547,7 +549,7 @@ function onTick()
 
                 local h, sLast
                 tick = 0    --発射からの経過時間
-                h = 60      --ステップ幅
+                h = 500     --ステップ幅
 
                 isArrived = false
 
@@ -567,7 +569,7 @@ function onTick()
 
                     --目標を通過したら正確な位置とステップ幅を再計算(ニュートン法)
                     if isArrived then
-                        h = brentsMethod(0, h, -goalY, fb, brentsFuncY, 10, 0.01)
+                        h = brentsMethod(0, 60, -goalY, fb, brentsFuncY, 10, 0.01)
                         y, vy = brentsFuncY(h)
                         y = y + goalY
                     end
@@ -577,6 +579,7 @@ function onTick()
                 end
 
                 s = {x, y, z, vX, vY, vZ}
+                sLast = s
 
                 --数値積分
                 for k = 1, 50 do
@@ -615,9 +618,9 @@ function onTick()
                 --到達時間より未来位置計算
                 goalX, goalY, goalZ = calGoalXYZ(tick, Azimuth)
 
-                OUN(23, x - goalX)
-                OUN(24, y - goalY)
-                OUN(25, z - goalZ)
+                OUN(23, s[1] - goalX)
+                OUN(24, s[2] - goalY)
+                OUN(25, s[3] - goalZ)
 
                 return highAngleEnable and (s[2] - goalY) or (s[3] - goalZ)
             end
@@ -647,7 +650,7 @@ function onTick()
             else
                 Azimuth = Azimuth - nextAzOffset
             end
-            Azimuth = brentsMethod(a, Elevation, fa, brentsFuncAzimuth(Elevation), brentsFuncAzimuth, 10, 0.1)
+            Azimuth = brentsMethod(a, Azimuth, fa, brentsFuncAzimuth(Azimuth), brentsFuncAzimuth, 10, 0.1)
         end
 
         --射程内判定
