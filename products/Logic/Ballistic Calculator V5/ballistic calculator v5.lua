@@ -41,9 +41,15 @@ do
         -- touchscreen defaults
         local screenConnection = simulator:getTouchScreen(1)
 
-        simulator:setInputNumber(1, 10)
-        simulator:setInputNumber(2, 4000)
+        simulator:setInputNumber(1, 500)
+        simulator:setInputNumber(2, 1000)
         simulator:setInputNumber(3, 0)
+        simulator:setInputNumber(4, 2)
+        simulator:setInputNumber(5, 1)
+        simulator:setInputNumber(6, -0.5)
+
+        simulator:setInputNumber(25, 20)
+        simulator:setInputNumber(26, 0.25)
 
         for i = 1, 4 do
            simulator:setInputBool(i, simulator:getIsToggled(i))
@@ -78,6 +84,7 @@ P = 8
 I = 0
 D = 20
 ALT_INTERVAL = 500  --数値積分の高度間隔[m]
+MAX_INTERVAL = math.sqrt(240*ALT_INTERVAL)
 
 INFTY = 10000
 PIVOT_MAX_ERROR = 2 --degree
@@ -92,27 +99,6 @@ parameter = {
     {800, 0.025, 120, 0.15},    --Machine Gun
     {50, 0.003, 3600, 0.125}    --Rocket Launcher
 }
-
---ベクトル演算ライブラリ
-do
-    --足し算
-    function add(a, b)
-        ans = {}
-        for i = 1, #a do
-            ans[i] = a[i] + b[i]
-        end
-        return ans
-    end
-
-    --スカラー倍(k*aの順序のみ)
-    function mul(k, a)
-        ans = {}
-        for i = 1, #a do
-            ans[i] = k*a[i]
-        end
-        return ans
-    end
-end
 
 --関数群
 do
@@ -155,58 +141,39 @@ do
         return x, z, y
     end
 
+    --高度による重力加速度を求める(return g [m/tick^2])
+    function calGrav(h)
+        return 30*math.exp(-1/60*h/1000)/3600
+    end
+
+    --高度による気圧を求める(return atm)
+    function calAtm(h)
+        return h >= 40000 and 0 or (((44.33 - h/1000)/11.89)^5.256)/1013
+    end
+
     --減衰あり等加速度直線運動で時間から位置と速度を求める
     --V0: 初速, a: 加速度, t: 時間, K:抵抗値
-    function calTrajectoryXV(x0, V0, a, t, K)
-        return ((V0 - a/K)*(1 - math.exp(-K*t)) + a*t)/K + x0, (V0 - a/K)*math.exp(-K*t) + a/K
+    function calTrajectoryXV(x0, V0, a, t, exp)
+        return ((V0 - a/K)*(1 - exp) + a*t)/K + x0, (V0 - a/K)*exp + a/K
     end
 
-    --高度変化による気圧と重力加速度を求める(return g [m/tick^2], atm)
-    function calGravAndAtm(h)
-        return 30*math.exp(-1/60*h/1000)/3600, h >= 40000 and 0 or (((44.33 - h/1000)/11.89)^5.256)/1013
-    end
-
-    --RKF45の時間微分関数(s: {x, y, z, vx, vy, vz})
-    function RKF45dfdt(s)
+    --オイラー法で数値積分(h: ステップ幅, s: {x, y, z, vx, vy, vz, ax, ay, az})
+    --return h, s
+    function eulerTrajectory(h, s)
         debug1 = debug1 + 1
-
-        RKF45vx, RKF45vy, RKF45vz = s[4], s[5], s[6]
-        g, atm = calGravAndAtm(s[3])
-        RKF45ax = -windVx*atm*WIND_INFLUENCE/60 - K*RKF45vx
-        RKF45ay = -windVy*atm*WIND_INFLUENCE/60 - K*RKF45vy
-        RKF45az = -g - K*RKF45vz
-        return {RKF45vx, RKF45vy, RKF45vz, RKF45ax, RKF45ay, RKF45az}
-    end
-
-    --RKF45で次のステップの値を求める
-    RKF45Error = 1
-    function RKF45Trajectory(h, s)
-        A = {
-            {1/4},
-            {3/32,      9/32},
-            {1932/2197, -7200/2197, 7296/2197},
-            {439/216,   -8,         3680/513,   -845/4104},
-            {-8/27,     2,          -3544/2565, 1859/4104,      -11/40},
-            {25/216,    0,          1408/2565,  2197/4104,      -1/5,   0},     --4次
-            {16/135,    0,          6656/12825, 28561/56430,    -9/50,  2/55}   --5次
-        }
-
-        k = {RKF45dfdt(s)}      --k[7]が4次、k[8]が5次
-        while true do
-            for i = 2, 8 do
-                tmp = {table.unpack(s)}
-                for j = 1, math.min(i - 1, 6) do
-                    tmp = add(tmp, mul(h*A[i - 1][j], k[j]))
-                end
-                k[i] = (i < 7) and RKF45dfdt(tmp) or tmp
-            end
-            error = add(k[8], mul(-1, k[7]))
-            error = math.sqrt(error[1]^2 + error[2]^2 + error[3]^2 + error[4]^2 + error[5]^2 + error[6]^2)
-            h = clamp(0.85*h*(RKF45Error/error)^0.2, 1, 1000)
-            if error <= RKF45Error or h == 1 or h == 1000 then
-                return h, k[8]
-            end
-        end
+        local exp, z, g, atm
+        local sNew = {}
+        exp = math.exp(-K*h)
+        z = calTrajectoryXV(s[3], s[6], s[9], h/2, math.exp(-K*h/2))
+        g, atm = calGrav(z), calAtm(z)
+        sNew[7] = -windVx*atm*WIND_INFLUENCE/60
+        sNew[8] = -windVy*atm*WIND_INFLUENCE/60
+        sNew[9] = -g
+        sNew[1], sNew[4] = calTrajectoryXV(s[1], s[4], sNew[7], h, exp)
+        sNew[2], sNew[5] = calTrajectoryXV(s[2], s[5], sNew[8], h, exp)
+        sNew[3], sNew[6] = calTrajectoryXV(s[3], s[6], sNew[9], h, exp)
+        h = clamp(ALT_INTERVAL/math.abs(sNew[6]), 60, MAX_INTERVAL)
+        return h, sNew
     end
 
     --ブレント法(b:最良, a:bと逆符号, f:評価に使う関数, times:最大ループ回数, error:許容誤差)
@@ -282,7 +249,7 @@ do
     end
 
     function distance2(x, y)
-        return math.sqrt(x^2 + y^2)
+        return math.sqrt(x*x + y*y)
     end
 
     function clamp(x, min, max)
@@ -296,7 +263,7 @@ do
 
     --未来位置予測(return: x, y, z, vx, vy, vz)
     function predictTRD1(x, y, z, vx, vy, vz, ax, ay, az, t)
-        return ax*t^2/2 + vx*t + x, ay*t^2/2 + vy*t + y, az*t^2/2 + vz*t + z, ax*t + vx, ay*t + vy, az*t + vz
+        return ax*t*t/2 + vx*t + x, ay*t*t/2 + vy*t + y, az*t*t/2 + vz*t + z, ax*t + vx, ay*t + vy, az*t + vz
     end
 
     pitchErrorPre = 0
@@ -349,7 +316,7 @@ do
             --位置ベクトルに足し合わせる
             x, y, z = x + x_diff*t_delta, y + y_diff*t_delta, z + z_diff*t_delta
             --単位ベクトル化
-            abs_vector = math.sqrt(x^2 + y^2 + z^2)
+            abs_vector = math.sqrt(x*x + y*y + z*z)
             x, y, z = x/abs_vector, y/abs_vector, z/abs_vector
             t = t + t_delta
         end
@@ -365,7 +332,7 @@ do
         --相対速度
         Vrx, Vry, Vrz = TLvx - Pvx, TLvy - Pvz, TLvz - Pvy
         --分母
-        T2 = TLx^2 + TLy^2 + TLz^2
+        T2 = TLx*TLx + TLy*TLy + TLz*TLz
         --標的の角速度を求め、自身の角速度と合成
         return -(TLy*Vrz - TLz*Vry)/T2 - PLrvx, -(TLz*Vrx - TLx*Vrz)/T2 - PLrvy, -(TLx*Vry - TLy*Vrx)/T2 - PLrvz
     end
@@ -373,7 +340,7 @@ do
     --ローカル座標からローカル極座標へ変換(return pitch, yaw)
     function rect2Polar(x, y, z, radian_bool)
         local pitch, yaw
-        pitch = math.atan(z, math.sqrt(x^2 + y^2))
+        pitch = math.atan(z, math.sqrt(x*x + y*y))
         yaw = math.atan(x, y)
         if radian_bool then
             return pitch, yaw
@@ -395,6 +362,7 @@ end
 
 function onTick()
     debug1 = 0
+    debug2 = 0
 
     --インプット
     do
@@ -483,13 +451,13 @@ function onTick()
 
         --海面高度でのワールド風速に変換
         windWv, windWdirec = windLocal2World(windLv, windLdirec, BodPvx, BodPvz, BodEx, BodEy, BodEz)
-        _, atm = calGravAndAtm(TurPy)
+        g, atm = calGrav(TurPy), calAtm(TurPy)
         windWv = windWv/atm
 
         --仰角、方位角の初期値設定
         do
             --到達時間の初期値
-            tick = math.sqrt(TWLx^2 + TWLy^2 + TWLz)/(V0 + (isRocket and 600 or 0))
+            tick = math.sqrt(TWLx*TWLx + TWLy*TWLy + TWLz*TWLz)/(V0 + (isRocket and 600 or 0))
 
             --方位角仮定
             futureX, futureY, futureZ = predictTRD1(TWLx, TWLy, TWLz, Tvx, Tvy, Tvz, Tax, Tay, Taz, tick)
@@ -503,11 +471,11 @@ function onTick()
                 --曲射/直射境界仰角条件
                 V0Border = V0 + (isRocket and 600/60 or 0)
                 A = -goalY*g/V0Border
-                highAngleBorder = math.acos(K*goalY/math.sqrt(A^2 + V0Border^2)) + math.atan(A, V0Border)
+                highAngleBorder = math.acos(K*goalY/math.sqrt(A*A + V0Border*V0Border)) + math.atan(A, V0Border)
 
                 --仰角からgolaYの時のzを求める(風なし)
                 function brentsFunc(b)
-                    return goalY*(V0*math.sin(b) + g/K)/V0/math.cos(b) + g*math.log(1 - K*goalY/V0/math.cos(b))/(K^2) - goalZ
+                    return goalY*(V0*math.sin(b) + g/K)/V0/math.cos(b) + g*math.log(1 - K*goalY/V0/math.cos(b))/(K*K) - goalZ
                 end
 
                 --直射解
@@ -526,8 +494,13 @@ function onTick()
 
         --方位角イテレーション
         function brentsFuncAzimuth(Azimuth)
+            debug2 = debug2 + 1
+            debug3 = 0
+
             --仰角イテレーション
             function brentsFuncElevation(Elevation)
+                debug3 = debug3 + 1
+
                 --砲弾前進方向
                 goalX, goalY, goalZ = calGoalXYZ(tick, Azimuth)
 
@@ -545,54 +518,46 @@ function onTick()
                 rocketAz = ROCKET_ACL*math.sin(Elevation)
 
                 --数値積分初期値
-                x, y, z, vX, vY, vZ = 0, 0, 0, v0X, v0Y, v0Z
+                g, atm = calGrav(TurPy), calAtm(TurPy)
+                s = {0, 0, 0, v0X, v0Y, v0Z, -windVx*atm*WIND_INFLUENCE/60, -windVy*atm*WIND_INFLUENCE/60, -g}
 
-                local h, sLast
+                local h, sLast = 60, s
                 tick = 0    --発射からの経過時間
-                h = 500     --ステップ幅
 
                 isArrived = false
 
                 --ロケットの加速
                 if isRocket then
-                    G, atm = calGravAndAtm(TurPy)
-
-                    function brentsFuncY(b)
-                        local y, vy = calTrajectoryXV(y, vY, rocketAy - windVy*atm*WIND_INFLUENCE/60, b, K)
-                        return y - goalY, vy
+                    local function brentsFunc(b)
+                        local fh, fs = eulerTrajectory(b, sLast)
+                        return fs[2] - goalY, fh, fs
                     end
 
-                    fb, vy = brentsFuncY(60)
+                    fb, h, s = brentsFunc(60)
                     
                     --目標y座標の通過判定
                     isArrived = fb > 0 and not highAngleEnable
 
-                    --目標を通過したら正確な位置とステップ幅を再計算(ニュートン法)
+                    --目標を通過したら正確な位置とステップ幅を再計算
                     if isArrived then
-                        h = brentsMethod(0, 60, -goalY, fb, brentsFuncY, 10, 0.01)
-                        y, vy = brentsFuncY(h)
-                        y = y + goalY
+                        h = brentsMethod(0, 60, -goalY, fb, brentsFunc, 10, 0.01)
+                        h, s = brentsFunc(h)
                     end
-                    x, vX = calTrajectoryXV(x, vX, -windVx*atm*WIND_INFLUENCE/60, h, K)
-                    z, vZ = calTrajectoryXV(z, vZ, rocketAz - G, h, K)
-                    tick = h
+                    tick, sLast = h, s
                 end
 
-                s = {x, y, z, vX, vY, vZ}
-                sLast = s
-
                 --数値積分
-                for k = 1, 50 do
+                for k = 1, 40 do
                     --終了条件
                     if isArrived or tick > tickDel then
                         break
                     end
 
                     --更新
-                    h, s = RKF45Trajectory(h, s)
+                    h, s = eulerTrajectory(h, s)
 
                     function brentsFunc(b)
-                        _, s = RKF45Trajectory(b, sLast)
+                        _, s = eulerTrajectory(b, sLast)
                         return highAngleEnable and (s[3] - goalZ) or (s[2] - goalY)
                     end
 
@@ -600,19 +565,21 @@ function onTick()
                     if highAngleEnable and s[3] < goalZ and s[6] < 0 then   --曲射
                     
                         h = brentsMethod(0, h, sLast[3] - goalZ, s[3] - goalZ, brentsFunc, 10, 0.1)
-                        _, s = RKF45Trajectory(h, sLast)
+                        _, s = eulerTrajectory(h, sLast)
 
                         isArrived = true
                     elseif not highAngleEnable and s[2] > goalY then        --直射
 
                         h = brentsMethod(0, h, sLast[2] - goalY, s[2] - goalY, brentsFunc, 10, 0.1)
-                        _, s = RKF45Trajectory(h, sLast)
+                        _, s = eulerTrajectory(h, sLast)
 
                         isArrived = true
                     end
 
                     tick = tick + h
-                    sLast = s
+                    sLast = {table.unpack(s)}
+
+                    OUN(27, debug3)
                 end
 
                 --到達時間より未来位置計算
@@ -635,7 +602,7 @@ function onTick()
                 else
                     Elevation = highAngleBorder
                 end
-                Elevation = brentsMethod(a, Elevation, fa, brentsFuncElevation(Elevation), brentsFuncElevation, 10, 0.1)
+                Elevation = brentsMethod(a, Elevation, fa, brentsFuncElevation(Elevation), brentsFuncElevation, 8, 0.1)
             end
 
             return s[1] - goalX
@@ -650,7 +617,7 @@ function onTick()
             else
                 Azimuth = Azimuth - nextAzOffset
             end
-            Azimuth = brentsMethod(a, Azimuth, fa, brentsFuncAzimuth(Azimuth), brentsFuncAzimuth, 10, 0.1)
+            Azimuth = brentsMethod(a, Azimuth, fa, brentsFuncAzimuth(Azimuth), brentsFuncAzimuth, 8, 0.1)
         end
 
         --射程内判定
@@ -760,4 +727,6 @@ function onTick()
     OUN(32, Azimuth)
 
     OUN(21, debug1)
+
+    OUN(26, debug2)
 end
