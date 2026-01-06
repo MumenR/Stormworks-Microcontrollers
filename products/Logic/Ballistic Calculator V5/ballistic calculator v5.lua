@@ -44,7 +44,7 @@ do
         simulator:setInputNumber(1, 500)
         simulator:setInputNumber(2, 1000)
         simulator:setInputNumber(3, 0)
-        simulator:setInputNumber(4, 2)
+        simulator:setInputNumber(4, 0.5)
         simulator:setInputNumber(5, 1)
         simulator:setInputNumber(6, -0.5)
 
@@ -83,8 +83,10 @@ STABI_DELAY_ROBO = 0.28
 P = 8
 I = 0
 D = 20
-ALT_INTERVAL = 500  --数値積分の高度間隔[m]
-MAX_INTERVAL = math.sqrt(240*ALT_INTERVAL)
+ALT_INTERVAL = 500                          --数値積分の高度間隔[m]
+MAX_INTERVAL = math.sqrt(240*ALT_INTERVAL)  --数値積分の最大ステップ幅[tick]
+MAX_ITERATION_I = 20                        --イテレーション最大回数
+ITERATION_FIN_ERROR = 0.1                   --イテレーション終了条件[m]
 
 INFTY = 10000
 PIVOT_MAX_ERROR = 2 --degree
@@ -102,43 +104,53 @@ parameter = {
 
 --関数群
 do
-    --ローカル座標からワールド座標へ変換(physics sensor使用)
-    function local2World(Lx, Ly, Lz, Px, Py, Pz, Ex, Ey, Ez)
-        local RetX, RetY, RetZ
-        RetX = math.cos(Ez)*math.cos(Ey)*Lx + (math.cos(Ez)*math.sin(Ey)*math.sin(Ex) - math.sin(Ez)*math.cos(Ex))*Lz + (math.cos(Ez)*math.sin(Ey)*math.cos(Ex) + math.sin(Ez)*math.sin(Ex))*Ly
-        RetY = math.sin(Ez)*math.cos(Ey)*Lx + (math.sin(Ez)*math.sin(Ey)*math.sin(Ex) + math.cos(Ez)*math.cos(Ex))*Lz + (math.sin(Ez)*math.sin(Ey)*math.cos(Ex) - math.cos(Ez)*math.sin(Ex))*Ly
-        RetZ = -math.sin(Ey)*Lx + math.cos(Ey)*math.sin(Ex)*Lz + math.cos(Ey)*math.cos(Ex)*Ly
-        return RetX + Px, RetZ + Pz, RetY + Py
+    --Bをk倍して和(A + k*B)
+    function addScalar(A, k, B, C)
+        C = {}
+        for i = 1, #A do
+            C[i] = {}
+            for j = 1, #A[1] do
+                C[i][j] = A[i][j] + k*B[i][j]
+            end
+        end
+        return C
     end
 
-    --ワールド座標からローカル座標へ(physics sensor使用)
-    function world2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
-        local a, b, c, d, e, f, g, h, i, j, k, l, x, z, y, Lower
-        Wx = Wx - Px
-        Wy = Wy - Pz
-        Wz = Wz - Py
-        a = math.cos(Ez)*math.cos(Ey)
-        b = math.cos(Ez)*math.sin(Ey)*math.sin(Ex) - math.sin(Ez)*math.cos(Ex)
-        c = math.cos(Ez)*math.sin(Ey)*math.cos(Ex) + math.sin(Ez)*math.sin(Ex)
-        d = Wx
-        e = math.sin(Ez)*math.cos(Ey)
-        f = math.sin(Ez)*math.sin(Ey)*math.sin(Ex) + math.cos(Ez)*math.cos(Ex)
-        g = math.sin(Ez)*math.sin(Ey)*math.cos(Ex) - math.cos(Ez)*math.sin(Ex)
-        h = Wz
-        i = -math.sin(Ey)
-        j = math.cos(Ey)*math.sin(Ex)
-        k = math.cos(Ey)*math.cos(Ex)
-        l = Wy
-        Lower = ((a*f-b*e)*k + (c*e - a*g)*j + (b*g - c*f)*i)
-        x = 0
-        y = 0
-        z = 0
-        if Lower ~= 0 then
-            x = ((b*g - c*f)*l + (d*f - b*h)*k + (c*h - d*g)*j)/Lower
-            y = -((a*g - c*e)*l + (d*e - a*h)*k + (c*h - d*g)*i)/Lower
-            z = ((a*f - b*e)*l + (d*e - a*h)*j + (b*h - d*f)*i)/Lower
+    --積(A*B)
+    function mul(A, B, C, sum)
+        C = {}
+        for i = 1, #A do
+            C[i] = {}
+            for j = 1, #B[1] do
+                sum = 0
+                for k = 1, #A[1] do
+                    sum = sum + A[i][k]*B[k][j]
+                end
+                C[i][j] = sum
+            end
         end
-        return x, z, y
+        return C
+    end
+
+    function R(Ex, Ey, Ez, a, b, c, d, e, f)
+        a, b, c, d, e, f = math.cos(Ex), math.sin(Ex), math.cos(Ey), math.sin(Ey), math.cos(Ez), math.sin(Ez)
+        return {
+            {e*c,   e*d*a + f*b,    e*d*b - f*a},
+            {-d,    c*a,            c*b},
+            {f*c,   f*d*a - e*b,    f*d*b + e*a}
+        }
+    end
+
+    --ローカル座標からワールド座標へ変換(Physics sensor使用)
+    function local2World(Lx, Ly, Lz, Px, Py, Pz, Ex, Ey, Ez)
+        local W = mul(R(Ex, Ey, Ez), {{Lx}, {Ly}, {Lz}})
+        return W[1][1] + Px, W[2][1] + Pz, W[3][1] + Py
+    end
+
+    --ワールド座標からローカル座標へ変換(Physics sensor使用)
+    function world2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
+        local L = mul({{Wx - Px}, {Wy - Pz}, {Wz - Py}}, R(Ex, Ey, Ez))
+        return L[1][1], L[1][2], L[1][3]
     end
 
     --高度による重力加速度を求める(return g [m/tick^2])
@@ -248,6 +260,7 @@ do
         return windWv, windWdirec
     end
 
+    --2次元距離計算
     function distance2(x, y)
         return math.sqrt(x*x + y*y)
     end
@@ -492,136 +505,158 @@ function onTick()
             Elevation = highAngleEnable and indirectTheta or directTheta
         end
 
-        --方位角イテレーション
-        function brentsFuncAzimuth(Azimuth)
+        --イテレーション
+        for i = 1, MAX_ITERATION_I do
+            lastIndex = i
+
             debug2 = debug2 + 1
             debug3 = 0
 
-            --仰角イテレーション
-            function brentsFuncElevation(Elevation)
-                debug3 = debug3 + 1
+            debug3 = debug3 + 1
 
-                --砲弾前進方向
-                goalX, goalY, goalZ = calGoalXYZ(tick, Azimuth)
+            --砲弾前進方向
+            goalX, goalY, goalZ = calGoalXYZ(tick, Azimuth)
 
-                --砲弾方向に風とビークル速度を成分分解
-                windVx = windWv*math.sin(windWdirec - Azimuth)
-                windVy = windWv*math.cos(windWdirec - Azimuth)
+            --砲弾方向に風とビークル速度を成分分解
+            windVx = windWv*math.sin(windWdirec - Azimuth)
+            windVy = windWv*math.cos(windWdirec - Azimuth)
 
-                --ビークル速度を加算した砲弾初速を計算
-                v0X = Wvxy*math.sin(WvxyDirec - Azimuth)
-                v0Y = V0*math.cos(Elevation) + Wvxy*math.cos(WvxyDirec - Azimuth)
-                v0Z = V0*math.sin(Elevation) + Wvz
+            --ビークル速度を加算した砲弾初速を計算
+            v0X = Wvxy*math.sin(WvxyDirec - Azimuth)
+            v0Y = V0*math.cos(Elevation) + Wvxy*math.cos(WvxyDirec - Azimuth)
+            v0Z = V0*math.sin(Elevation) + Wvz
 
-                --ロケット
-                rocketAy = ROCKET_ACL*math.cos(Elevation)
-                rocketAz = ROCKET_ACL*math.sin(Elevation)
+            --ロケット
+            rocketAy = ROCKET_ACL*math.cos(Elevation)
+            rocketAz = ROCKET_ACL*math.sin(Elevation)
 
-                --数値積分初期値
-                g, atm = calGrav(TurPy), calAtm(TurPy)
-                s = {0, 0, 0, v0X, v0Y, v0Z, -windVx*atm*WIND_INFLUENCE/60, -windVy*atm*WIND_INFLUENCE/60, -g}
+            --数値積分初期値
+            g, atm = calGrav(TurPy), calAtm(TurPy)
+            s = {0, 0, 0, v0X, v0Y, v0Z, -windVx*atm*WIND_INFLUENCE/60, -windVy*atm*WIND_INFLUENCE/60, -g}
 
-                local h, sLast = 60, s
-                tick = 0    --発射からの経過時間
+            local h, sLast = 60, s
+            tick = 0    --発射からの経過時間
 
-                isArrived = false
+            isArrived = false
 
-                --ロケットの加速
-                if isRocket then
-                    local function brentsFunc(b)
-                        local fh, fs = eulerTrajectory(b, sLast)
-                        return fs[2] - goalY, fh, fs
-                    end
-
-                    fb, h, s = brentsFunc(60)
-                    
-                    --目標y座標の通過判定
-                    isArrived = fb > 0 and not highAngleEnable
-
-                    --目標を通過したら正確な位置とステップ幅を再計算
-                    if isArrived then
-                        h = brentsMethod(0, 60, -goalY, fb, brentsFunc, 10, 0.01)
-                        h, s = brentsFunc(h)
-                    end
-                    tick, sLast = h, s
+            --ロケットの加速
+            if isRocket then
+                local function brentsFunc(b)
+                    local fh, fs = eulerTrajectory(b, sLast)
+                    return fs[2] - goalY, fh, fs
                 end
 
-                --数値積分
-                for k = 1, 40 do
-                    --終了条件
-                    if isArrived or tick > tickDel then
+                fb, h, s = brentsFunc(60)
+                
+                --目標y座標の通過判定
+                isArrived = fb > 0 and not highAngleEnable
+
+                --目標を通過したら正確な位置とステップ幅を再計算
+                if isArrived then
+                    h = brentsMethod(0, 60, -goalY, fb, brentsFunc, 10, 0.01)
+                    h, s = brentsFunc(h)
+                end
+                tick, sLast = h, s
+            end
+
+            --数値積分
+            for k = 1, 40 do
+                --終了条件
+                if isArrived or tick > tickDel then
+                    break
+                end
+
+                --更新
+                h, s = eulerTrajectory(h, s)
+
+                function brentsFunc(b)
+                    _, s = eulerTrajectory(b, sLast)
+                    return highAngleEnable and (s[3] - goalZ) or (s[2] - goalY)
+                end
+
+                --目標を通過したら正確な位置とステップ幅を再計算(ブレント法)
+                if highAngleEnable and s[3] < goalZ and s[6] < 0 then   --曲射
+                
+                    h = brentsMethod(0, h, sLast[3] - goalZ, s[3] - goalZ, brentsFunc, 10, 0.1)
+                    _, s = eulerTrajectory(h, sLast)
+
+                    isArrived = true
+                elseif not highAngleEnable and s[2] > goalY then        --直射
+
+                    h = brentsMethod(0, h, sLast[2] - goalY, s[2] - goalY, brentsFunc, 10, 0.1)
+                    _, s = eulerTrajectory(h, sLast)
+
+                    isArrived = true
+                end
+
+                tick = tick + h
+                sLast = {table.unpack(s)}
+
+                OUN(27, debug3)
+            end
+
+            --到達時間より未来位置計算
+            goalX, goalY, goalZ = calGoalXYZ(tick, Azimuth)
+
+            OUN(23, s[1] - goalX)
+            OUN(24, s[2] - goalY)
+            OUN(25, s[3] - goalZ)
+
+            --仰角、方位角更新(ブロイデン法)
+            do
+                X = {{Azimuth}, {Elevation}}    --変数ベクトル
+                if highAngleEnable then         --誤差ベクトル
+                    F = {{s[1] - goalX}, {s[2] - goalY}}
+                else
+                    F = {{s[1] - goalX}, {s[3] - goalZ}}
+                end
+
+                if i == 1 then
+                    Azimuth = Azimuth + math.atan(goalX, goalY) - math.atan(s[1], s[2])
+                    Elevation = Elevation + math.atan(goalZ, goalY) - math.atan(s[3], s[2])
+                    XLast = {table.unpack(X)}
+                    FLast = {table.unpack(F)}
+                else
+                    local a, b, det
+
+                    dX = addScalar(X, -1, XLast)
+                    dXT = {{dX[1][1], dX[2][1]}}
+                    dF = addScalar(F, -1, FLast)
+
+                    XLast = {table.unpack(X)}
+                    FLast = {table.unpack(F)}
+
+                    --初期ヤコビアン逆行列作成
+                    if i == 2 then
+                        a = dF[1][1]/dX[1][1]
+                        b = dF[2][1]/dX[2][1]
+                        det = a*b
+                        B = {
+                            {b/det, 0},
+                            {0, a/det}
+                        }
+                    else    --ヤコビアン逆行列の更新
+                        det = mul(dXT, mul(B, dF))[1][1]
+                        B = addScalar(B, 1/det, mul(addScalar(dX, -1, mul(B, dF)), mul(dXT, B)))
+                    end
+
+                    --仰角、方位角の更新
+                    X = addScalar(X, -1, mul(B, F))
+                    a = highAngleEnable and highAngleBorder or -pi2/4
+                    b = highAngleEnable and (pi2/4) or highAngleBorder
+                    Azimuth = clamp(X[1][1], -pi2/2, pi2/2)
+                    Elevation = clamp(X[2][1], a, b)
+
+                    --イテレーション終了条件
+                    if distance2(dF[1][1], dF[2][1]) < ITERATION_FIN_ERROR then
                         break
                     end
-
-                    --更新
-                    h, s = eulerTrajectory(h, s)
-
-                    function brentsFunc(b)
-                        _, s = eulerTrajectory(b, sLast)
-                        return highAngleEnable and (s[3] - goalZ) or (s[2] - goalY)
-                    end
-
-                    --目標を通過したら正確な位置とステップ幅を再計算(ブレント法)
-                    if highAngleEnable and s[3] < goalZ and s[6] < 0 then   --曲射
-                    
-                        h = brentsMethod(0, h, sLast[3] - goalZ, s[3] - goalZ, brentsFunc, 10, 0.1)
-                        _, s = eulerTrajectory(h, sLast)
-
-                        isArrived = true
-                    elseif not highAngleEnable and s[2] > goalY then        --直射
-
-                        h = brentsMethod(0, h, sLast[2] - goalY, s[2] - goalY, brentsFunc, 10, 0.1)
-                        _, s = eulerTrajectory(h, sLast)
-
-                        isArrived = true
-                    end
-
-                    tick = tick + h
-                    sLast = {table.unpack(s)}
-
-                    OUN(27, debug3)
                 end
-
-                --到達時間より未来位置計算
-                goalX, goalY, goalZ = calGoalXYZ(tick, Azimuth)
-
-                OUN(23, s[1] - goalX)
-                OUN(24, s[2] - goalY)
-                OUN(25, s[3] - goalZ)
-
-                return highAngleEnable and (s[2] - goalY) or (s[3] - goalZ)
             end
-
-            --ブレント法で仰角更新
-            do
-                local a, fa = Elevation, brentsFuncElevation(Elevation)
-                if s[2] > goalY and highAngleEnable then
-                    Elevation = pi2/4
-                elseif s[3] > goalZ and not highAngleEnable then
-                    Elevation = math.atan(goalZ, goalY)
-                else
-                    Elevation = highAngleBorder
-                end
-                Elevation = brentsMethod(a, Elevation, fa, brentsFuncElevation(Elevation), brentsFuncElevation, 8, 0.1)
-            end
-
-            return s[1] - goalX
-        end
-
-        --ブレント法で方位角更新
-        do
-            local a, fa = Azimuth, brentsFuncAzimuth(Azimuth)
-            local nextAzOffset = highAngleEnable and pi2/2 or pi2/4
-            if fa < 0 then
-                Azimuth = Azimuth + nextAzOffset
-            else
-                Azimuth = Azimuth - nextAzOffset
-            end
-            Azimuth = brentsMethod(a, Azimuth, fa, brentsFuncAzimuth(Azimuth), brentsFuncAzimuth, 8, 0.1)
         end
 
         --射程内判定
-        inRange = tick < tickDel and Elevation ~= nil and Azimuth ~= nil
+        inRange = tick < tickDel and lastIndex ~= MAX_ITERATION_I
     else
         Azimuth, Elevation = 0, 0
         inRange = false
