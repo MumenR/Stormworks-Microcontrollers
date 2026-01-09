@@ -46,12 +46,14 @@ do
            simulator:setInputNumber(i, simulator:getSlider(i)*1000)
         end
 
+        
         simulator:setInputNumber(1, 0)
-        simulator:setInputNumber(2, 800)
+        simulator:setInputNumber(2, 1000)
         simulator:setInputNumber(3, 0)
-        simulator:setInputNumber(4, 0)
+        simulator:setInputNumber(4, 1)
         simulator:setInputNumber(5, 0)
         simulator:setInputNumber(6, 0)
+        
 
         simulator:setInputNumber(25, 40)
         simulator:setInputNumber(26, 0.0)
@@ -105,18 +107,6 @@ parameter = {
 
 --関数群
 do
-    --Bをk倍して和(A + k*B)
-    function addScalar(A, k, B, C)
-        C = {}
-        for i = 1, #A do
-            C[i] = {}
-            for j = 1, #A[1] do
-                C[i][j] = A[i][j] + k*B[i][j]
-            end
-        end
-        return C
-    end
-
     --積(A*B)
     function mul(A, B, C, sum)
         C = {}
@@ -244,6 +234,22 @@ do
         end
     end
 
+    --割線法更新(2変数版)
+    function secantMethod(X, lastX, F, lastF)
+        local det1, det2, newX = F[1] - lastF[1], F[2] - lastF[2], {}
+        if det1 == 0 then
+            newX[1] = X[1] + 0.001
+        else
+            newX[1] = X[1] - F[1]*(X[1] - lastX[1])/det1
+        end
+        if det2 == 0 then
+            newX[2] = X[2] + 0.001
+        else
+            newX[2] = X[2] - F[2]*(X[2] - lastX[2])/det2
+        end
+        return newX
+    end
+
     --風速をワールド風速に変換
     function windLocal2World(windLv, windLdirec, Pvx, Pvz, Ex, Ey, Ez)
         local windLvx, windLvy, x, y, z, e_x, e_y, e_z, windWdirec, windWv
@@ -275,9 +281,9 @@ do
         return x
     end
 
-    --未来位置予測(return: x, y, z, vx, vy, vz)
+    --未来位置予測(return: x, y, z, vx, vy, vz, ax, ay, az)
     function predictTRD1(x, y, z, vx, vy, vz, ax, ay, az, t)
-        return ax*t*t/2 + vx*t + x, ay*t*t/2 + vy*t + y, az*t*t/2 + vz*t + z, ax*t + vx, ay*t + vy, az*t + vz
+        return ax*t*t/2 + vx*t + x, ay*t*t/2 + vy*t + y, az*t*t/2 + vz*t + z, ax*t + vx, ay*t + vy, az*t + vz, ax, ay, az
     end
 
     pitchErrorPre = 0
@@ -363,14 +369,10 @@ do
         end
     end
 
-    --未来位置計算、砲弾方向基準をY方向とした座標系に変換
-    function calGoalXYZ(tick, Azimuth)
-        local futureX, futureY, futureZ = predictTRD1(TWLx, TWLy, TWLz, Tvx, Tvy, Tvz, Tax, Tay, Taz, tick)
-        local futureXY = distance2(futureX, futureY)
-        goalX = futureXY*math.sin(math.atan(futureX, futureY) - Azimuth)
-        goalY = futureXY*math.cos(math.atan(futureX, futureY) - Azimuth)
-        goalZ = futureZ
-        return goalX, goalY, goalZ
+    --砲弾方向基準をY方向とした座標系に変換
+    function world2BallisticLocal(Wx, Wy, Wz, Azimuth)
+        local BLxy = distance2(Wx, Wy)
+        return BLxy*math.sin(math.atan(Wx, Wy) - Azimuth), BLxy*math.cos(math.atan(Wx, Wy) - Azimuth), Wz
     end
 end
 
@@ -475,7 +477,7 @@ function onTick()
             --方位角仮定
             futureX, futureY, futureZ = predictTRD1(TWLx, TWLy, TWLz, Tvx, Tvy, Tvz, Tax, Tay, Taz, tick)
             Azimuth = math.atan(futureX, futureY)
-            goalX, goalY, goalZ = calGoalXYZ(tick, Azimuth)
+            goalX, goalY, goalZ = world2BallisticLocal(TWLx, TWLy, TWLz, Azimuth)
 
             --曲射解と直射解を解析式で求め、中間値を直射・曲射境界値に
             do
@@ -509,8 +511,13 @@ function onTick()
         for i = 1, MAX_ITERATION_I do
             lastIndex = i
 
-            --砲弾前進方向
-            goalX, goalY, goalZ = calGoalXYZ(tick, Azimuth)
+            --ターゲット座標(砲弾方向基準ローカル座標系)
+            TGTx, TGTy, TGTz = world2BallisticLocal(TWLx, TWLy, TWLz, Azimuth)
+            TGTvx, TGTvy, TGTvz = world2BallisticLocal(Tvx, Tvy, Tvz, Azimuth)
+            TGTax, TGTay, TGTaz = world2BallisticLocal(Tax, Tay, Taz, Azimuth)
+            TGT0 = {TGTx, TGTy, TGTz, TGTvx, TGTvy, TGTvz, TGTax, TGTay, TGTaz}
+            TGT = {table.unpack(TGT0)}
+            TGTLast = {table.unpack(TGT0)}
 
             --砲弾方向に風とビークル速度を成分分解
             windVx = windWv*math.sin(windWdirec - Azimuth)
@@ -537,21 +544,24 @@ function onTick()
             --ロケットの加速
             if isRocket then
                 local function brentsFunc(b)
+                    TGT = {predictTRD1(TGT0[1], TGT0[2], TGT0[3], TGT0[4], TGT0[5], TGT0[6], TGT0[7], TGT0[8], TGT0[9], b)}
                     local fh, fs = eulerTrajectory(b, sLast)
-                    return fs[2] - goalY, fh, fs
+                    return fs[2] - TGT[2], fh, fs
                 end
 
                 fb, h, s = brentsFunc(60)
+                TGT = {predictTRD1(TGT0[1], TGT0[2], TGT0[3], TGT0[4], TGT0[5], TGT0[6], TGT0[7], TGT0[8], TGT0[9], 60)}
                 
                 --目標y座標の通過判定
                 isArrived = fb > 0 and not highAngleEnable
 
                 --目標を通過したら正確な位置とステップ幅を再計算
                 if isArrived then
-                    h = brentsMethod(0, 60, -goalY, fb, brentsFunc, 10, 0.01)
+                    h = brentsMethod(0, 60, -TGT0[2], fb, brentsFunc, 10, 0.01)
                     h, s = brentsFunc(h)
                 end
                 tick, sLast = h, s
+                TGTLast = {table.unpack(TGT)}
             end
 
             --数値積分
@@ -562,50 +572,50 @@ function onTick()
                 end
 
                 --更新
-                h, s = eulerTrajectory(h, s)
+                TGT = {predictTRD1(TGT0[1], TGT0[2], TGT0[3], TGT0[4], TGT0[5], TGT0[6], TGT0[7], TGT0[8], TGT0[9], tick + h)}
+                hNew, s = eulerTrajectory(h, s)
 
                 function brentsFunc(b)
+                    TGT = {predictTRD1(TGT0[1], TGT0[2], TGT0[3], TGT0[4], TGT0[5], TGT0[6], TGT0[7], TGT0[8], TGT0[9], tick + b)}
                     _, s = eulerTrajectory(b, sLast)
-                    return highAngleEnable and (s[3] - goalZ) or (s[2] - goalY)
+                    return highAngleEnable and (s[3] - TGT[3]) or (s[2] - TGT[2])
                 end
 
                 --目標を通過したら正確な位置とステップ幅を再計算(ブレント法)
-                if highAngleEnable and s[3] < goalZ and s[6] < 0 then   --曲射
-                
-                    h = brentsMethod(0, hLast, sLast[3] - goalZ, s[3] - goalZ, brentsFunc, 10, 0.01)
+                if highAngleEnable and s[3] < TGT[3] and s[6] < 0 then   --曲射
+
+                    h = brentsMethod(0, h, sLast[3] - TGTLast[3], s[3] - TGT[3], brentsFunc, 10, 0.01)
                     _, s = eulerTrajectory(h, sLast)
 
                     isArrived = true
-                elseif not highAngleEnable and s[2] > goalY then        --直射
+                elseif not highAngleEnable and s[2] > TGT[2] then        --直射
 
-                    h = brentsMethod(0, hLast, sLast[2] - goalY, s[2] - goalY, brentsFunc, 10, 0.01)
+                    h = brentsMethod(0, h, sLast[2] - TGTLast[2], s[2] - TGT[2], brentsFunc, 10, 0.01)
                     _, s = eulerTrajectory(h, sLast)
 
                     isArrived = true
                 end
 
                 tick = tick + h
+                h = hNew
                 sLast = {table.unpack(s)}
-                hLast = h
+                TGTLast = {table.unpack(TGT)}
             end
 
-            --到達時間より未来位置計算
-            goalX, goalY, goalZ = calGoalXYZ(tick, Azimuth)
+            OUN(23, s[1] - TGT[1])
+            OUN(24, s[2] - TGT[2])
+            OUN(25, s[3] - TGT[3])
 
-            OUN(23, s[1] - goalX)
-            OUN(24, s[2] - goalY)
-            OUN(25, s[3] - goalZ)
-
-            --仰角、方位角更新(ブロイデン法)
+            --仰角、方位角更新(割線法)
             do
-                X = {{Azimuth}, {Elevation}}    --変数ベクトル
+                X = {Azimuth, Elevation}    --変数ベクトル
                 if highAngleEnable then         --誤差ベクトル
-                    F = {{s[1] - goalX}, {s[2] - goalY}}
+                    F = {s[1] - TGT[1], s[2] - TGT[2]}
                 else
-                    F = {{s[1] - goalX}, {s[3] - goalZ}}
+                    F = {s[1] - TGT[1], s[3] - TGT[3]}
                 end
                 errorNormLast = errorNorm or math.huge
-                errorNorm = distance2(F[1][1], F[2][1])
+                errorNorm = distance2(F[1], F[2])
 
                 --イテレーション終了条件
                 if errorNorm < ITERATION_FIN_ERROR then
@@ -614,79 +624,23 @@ function onTick()
 
                 if i == 1 then  --初期更新は幾何的に
                     if highAngleEnable then
-                        Elevation = pi2/4 - (goalY/s[2])*(pi2/4 - Elevation)
+                        Elevation = pi2/4 - (TGT[2]/s[2])*(pi2/4 - Elevation)
                     else
-                        Elevation = Elevation + math.atan(goalZ, goalY) - math.atan(s[3], s[2])
+                        Elevation = Elevation + math.atan(TGT[3], TGT[2]) - math.atan(s[3], s[2])
                     end
-                    Azimuth = Azimuth + math.atan(goalX, goalY) - math.atan(s[1], s[2])
-                    XLast = {table.unpack(X)}
-                    FLast = {table.unpack(F)}
-                else            --２回目以降の更新はブロイデン法
-                    local a, b, det, alpha
-
-                    --ヤコビアン逆行列Bの計算
-                    local function calB()
-                        local eps = 1e-9
-                        local a, b
-
-                        -- Azimuth 成分
-                        if math.abs(dX[1][1]) > eps then
-                            a = dF[1][1] / dX[1][1]
-                        else
-                            a = 1    -- 既に収束 → 単位写像
-                        end
-
-                        -- Elevation 成分
-                        if math.abs(dX[2][1]) > eps then
-                            b = dF[2][1] / dX[2][1]
-                        else
-                            b = 1
-                        end
-
-                        -- 逆ヤコビアン（対角近似）
-                        return {
-                            {1/a, 0},
-                            {0, 1/b}
-                        }
-                    end
-                    
-                    dX = addScalar(X, -1, XLast)
-
-                    if i == 2 or errorNorm < errorNormLast then
-
-                        --変分の計算
-                        dF = addScalar(F, -1, FLast)
-                        dXT = {{dX[1][1], dX[2][1]}}
-                        XLast = {table.unpack(X)}
-                        FLast = {table.unpack(F)}
-
-                        --逆ヤコビアンの計算
-                        if i == 2 then
-                            B = calB()
-                        else
-                            det = mul(dXT, mul(B, dF))[1][1]
-                            --有効性がないなら初期化
-                            if det == math.huge or det ~= det or math.abs(det) < 0.01 then
-                                B = calB()
-                            else    --有効なら更新
-                                dX_LIMIT = 0.5
-                                alpha = clamp(dX_LIMIT/distance2(dX[1][1], dX[2][1]), 0.1, 1)
-                                B = addScalar(B, alpha/det, mul(addScalar(dX, -1, mul(B, dF)), mul(dXT, B)))
-                            end
-                        end
-                        
-                        --更新
-                        X = addScalar(X, -1, mul(B, F))
-
-                    else    --誤差が増えたなら、更新量を半分にする
-                        X = addScalar(XLast, 0.5, dX)
-                    end
-
+                    Azimuth = Azimuth + math.atan(TGT[1], TGT[2]) - math.atan(s[1], s[2])
+                else            --２回目以降の更新は割線法
+                    local a, b, Xnew
+                    Xnew = secantMethod(X, XLast, F, FLast)
+                
                     a = highAngleEnable and highAngleBorder or -pi2/4
                     b = highAngleEnable and (pi2/2 - highAngleBorder) or highAngleBorder
-                    Azimuth = clamp(X[1][1], -pi2/2, pi2/2)
-                    Elevation = clamp(X[2][1], a, b)
+                    Azimuth = clamp(Xnew[1], -pi2/2, pi2/2)
+                    Elevation = clamp(Xnew[2], a, b)
                 end
+
+                XLast = {table.unpack(X)}
+                FLast = {table.unpack(F)}
             end
         end
 
