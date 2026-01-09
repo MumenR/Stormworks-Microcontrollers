@@ -41,19 +41,20 @@ do
         -- touchscreen defaults
         local screenConnection = simulator:getTouchScreen(1)
 
-        simulator:setInputNumber(1, 500)
-        simulator:setInputNumber(2, 1000)
-        simulator:setInputNumber(3, 0)
-        simulator:setInputNumber(4, 0.5)
-        simulator:setInputNumber(5, 1)
-        simulator:setInputNumber(6, -0.5)
-
-        simulator:setInputNumber(25, 20)
-        simulator:setInputNumber(26, 0.25)
-
-        for i = 1, 4 do
+        for i = 1, 6 do
            simulator:setInputBool(i, simulator:getIsToggled(i))
+           simulator:setInputNumber(i, simulator:getSlider(i)*1000)
         end
+
+        simulator:setInputNumber(1, 0)
+        simulator:setInputNumber(2, 800)
+        simulator:setInputNumber(3, 0)
+        simulator:setInputNumber(4, 0)
+        simulator:setInputNumber(5, 0)
+        simulator:setInputNumber(6, 0)
+
+        simulator:setInputNumber(25, 40)
+        simulator:setInputNumber(26, 0.0)
     end;
 end
 ---@endsection
@@ -132,8 +133,8 @@ do
         return C
     end
 
-    function R(Ex, Ey, Ez, a, b, c, d, e, f)
-        a, b, c, d, e, f = math.cos(Ex), math.sin(Ex), math.cos(Ey), math.sin(Ey), math.cos(Ez), math.sin(Ez)
+    function R(Ex, Ey, Ez)
+        local a, b, c, d, e, f = math.cos(Ex), math.sin(Ex), math.cos(Ey), math.sin(Ey), math.cos(Ez), math.sin(Ez)
         return {
             {e*c,   e*d*a + f*b,    e*d*b - f*a},
             {-d,    c*a,            c*b},
@@ -149,7 +150,7 @@ do
 
     --ワールド座標からローカル座標へ変換(Physics sensor使用)
     function world2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
-        local L = mul({{Wx - Px}, {Wy - Pz}, {Wz - Py}}, R(Ex, Ey, Ez))
+        local L = mul({{Wx - Px, Wy - Pz, Wz - Py}}, R(Ex, Ey, Ez))
         return L[1][1], L[1][2], L[1][3]
     end
 
@@ -375,7 +376,6 @@ end
 
 function onTick()
     debug1 = 0
-    debug2 = 0
 
     --インプット
     do
@@ -509,11 +509,6 @@ function onTick()
         for i = 1, MAX_ITERATION_I do
             lastIndex = i
 
-            debug2 = debug2 + 1
-            debug3 = 0
-
-            debug3 = debug3 + 1
-
             --砲弾前進方向
             goalX, goalY, goalZ = calGoalXYZ(tick, Azimuth)
 
@@ -534,7 +529,7 @@ function onTick()
             g, atm = calGrav(TurPy), calAtm(TurPy)
             s = {0, 0, 0, v0X, v0Y, v0Z, -windVx*atm*WIND_INFLUENCE/60, -windVy*atm*WIND_INFLUENCE/60, -g}
 
-            local h, sLast = 60, s
+            local h, sLast, hLast = 60, s, 60
             tick = 0    --発射からの経過時間
 
             isArrived = false
@@ -577,13 +572,13 @@ function onTick()
                 --目標を通過したら正確な位置とステップ幅を再計算(ブレント法)
                 if highAngleEnable and s[3] < goalZ and s[6] < 0 then   --曲射
                 
-                    h = brentsMethod(0, h, sLast[3] - goalZ, s[3] - goalZ, brentsFunc, 10, 0.1)
+                    h = brentsMethod(0, hLast, sLast[3] - goalZ, s[3] - goalZ, brentsFunc, 10, 0.01)
                     _, s = eulerTrajectory(h, sLast)
 
                     isArrived = true
                 elseif not highAngleEnable and s[2] > goalY then        --直射
 
-                    h = brentsMethod(0, h, sLast[2] - goalY, s[2] - goalY, brentsFunc, 10, 0.1)
+                    h = brentsMethod(0, hLast, sLast[2] - goalY, s[2] - goalY, brentsFunc, 10, 0.01)
                     _, s = eulerTrajectory(h, sLast)
 
                     isArrived = true
@@ -591,8 +586,7 @@ function onTick()
 
                 tick = tick + h
                 sLast = {table.unpack(s)}
-
-                OUN(27, debug3)
+                hLast = h
             end
 
             --到達時間より未来位置計算
@@ -610,63 +604,105 @@ function onTick()
                 else
                     F = {{s[1] - goalX}, {s[3] - goalZ}}
                 end
+                errorNormLast = errorNorm or math.huge
+                errorNorm = distance2(F[1][1], F[2][1])
 
-                if i == 1 then
+                --イテレーション終了条件
+                if errorNorm < ITERATION_FIN_ERROR then
+                    break
+                end
+
+                if i == 1 then  --初期更新は幾何的に
+                    if highAngleEnable then
+                        Elevation = pi2/4 - (goalY/s[2])*(pi2/4 - Elevation)
+                    else
+                        Elevation = Elevation + math.atan(goalZ, goalY) - math.atan(s[3], s[2])
+                    end
                     Azimuth = Azimuth + math.atan(goalX, goalY) - math.atan(s[1], s[2])
-                    Elevation = Elevation + math.atan(goalZ, goalY) - math.atan(s[3], s[2])
                     XLast = {table.unpack(X)}
                     FLast = {table.unpack(F)}
-                else
-                    local a, b, det
+                else            --２回目以降の更新はブロイデン法
+                    local a, b, det, alpha
 
-                    dX = addScalar(X, -1, XLast)
-                    dXT = {{dX[1][1], dX[2][1]}}
-                    dF = addScalar(F, -1, FLast)
+                    --ヤコビアン逆行列Bの計算
+                    local function calB()
+                        local eps = 1e-9
+                        local a, b
 
-                    XLast = {table.unpack(X)}
-                    FLast = {table.unpack(F)}
+                        -- Azimuth 成分
+                        if math.abs(dX[1][1]) > eps then
+                            a = dF[1][1] / dX[1][1]
+                        else
+                            a = 1    -- 既に収束 → 単位写像
+                        end
 
-                    --初期ヤコビアン逆行列作成
-                    if i == 2 then
-                        a = dF[1][1]/dX[1][1]
-                        b = dF[2][1]/dX[2][1]
-                        det = a*b
-                        B = {
-                            {b/det, 0},
-                            {0, a/det}
+                        -- Elevation 成分
+                        if math.abs(dX[2][1]) > eps then
+                            b = dF[2][1] / dX[2][1]
+                        else
+                            b = 1
+                        end
+
+                        -- 逆ヤコビアン（対角近似）
+                        return {
+                            {1/a, 0},
+                            {0, 1/b}
                         }
-                    else    --ヤコビアン逆行列の更新
-                        det = mul(dXT, mul(B, dF))[1][1]
-                        B = addScalar(B, 1/det, mul(addScalar(dX, -1, mul(B, dF)), mul(dXT, B)))
+                    end
+                    
+                    dX = addScalar(X, -1, XLast)
+
+                    if i == 2 or errorNorm < errorNormLast then
+
+                        --変分の計算
+                        dF = addScalar(F, -1, FLast)
+                        dXT = {{dX[1][1], dX[2][1]}}
+                        XLast = {table.unpack(X)}
+                        FLast = {table.unpack(F)}
+
+                        --逆ヤコビアンの計算
+                        if i == 2 then
+                            B = calB()
+                        else
+                            det = mul(dXT, mul(B, dF))[1][1]
+                            --有効性がないなら初期化
+                            if det == math.huge or det ~= det or math.abs(det) < 0.01 then
+                                B = calB()
+                            else    --有効なら更新
+                                dX_LIMIT = 0.5
+                                alpha = clamp(dX_LIMIT/distance2(dX[1][1], dX[2][1]), 0.1, 1)
+                                B = addScalar(B, alpha/det, mul(addScalar(dX, -1, mul(B, dF)), mul(dXT, B)))
+                            end
+                        end
+                        
+                        --更新
+                        X = addScalar(X, -1, mul(B, F))
+
+                    else    --誤差が増えたなら、更新量を半分にする
+                        X = addScalar(XLast, 0.5, dX)
                     end
 
-                    --仰角、方位角の更新
-                    X = addScalar(X, -1, mul(B, F))
                     a = highAngleEnable and highAngleBorder or -pi2/4
-                    b = highAngleEnable and (pi2/4) or highAngleBorder
+                    b = highAngleEnable and (pi2/2 - highAngleBorder) or highAngleBorder
                     Azimuth = clamp(X[1][1], -pi2/2, pi2/2)
                     Elevation = clamp(X[2][1], a, b)
-
-                    --イテレーション終了条件
-                    if distance2(dF[1][1], dF[2][1]) < ITERATION_FIN_ERROR then
-                        break
-                    end
                 end
             end
         end
 
         --射程内判定
         inRange = tick < tickDel and lastIndex ~= MAX_ITERATION_I
+
+        OUN(22, lastIndex)
     else
         Azimuth, Elevation = 0, 0
-        inRange = false
         rotation_speed_pitch, rotation_speed_yaw = 0, 0
     end
 
     --スタビライザー
     if inRange then
         --向くべき座標計算
-        stabiWx, stabiWy, stabiWz = TurPx + INFTY*math.sin(Azimuth), TurPz + INFTY*math.cos(Azimuth), TurPy + INFTY*math.tan(Elevation)
+        stabiWx, stabiWy, stabiWz = TurPx + INFTY*math.cos(Elevation)*math.sin(Azimuth), TurPz + INFTY*math.cos(Elevation)*math.cos(Azimuth), TurPy + INFTY*math.sin(Elevation)
         srabiLx, srabiLy, srabiLz = world2Local(stabiWx, stabiWy, stabiWz, TurPx, TurPy, TurPz, BodEx, BodEy, BodEz)
 
         --射撃可能判定用の、本来向くべき向き
@@ -702,7 +738,7 @@ function onTick()
     --射撃可能判定
     do
         currentInFOV = same_rotation(currentYaw) > MIN_YAW and same_rotation(currentYaw) < MAX_YAW and currentPitch > MIN_PITCH and currentPitch < MAX_PITCH
-        targetInFOVPitch = targetPitch > MIN_PITCH and targetPitch < MAX_PITCH
+        targetInFOVPitch = math.sin(targetPitch) > math.sin(MIN_PITCH) and math.sin(targetPitch) < math.sin(MAX_PITCH)
         targetInFOVYaw = targetYaw > MIN_YAW and targetYaw < MAX_YAW
         pitchError = math.abs(same_rotation(targetPitch - currentPitch))*360
         yawError = math.abs(same_rotation(targetYaw - STANDBY_YAW - currentYaw))*360
@@ -762,6 +798,4 @@ function onTick()
     OUN(32, Azimuth)
 
     OUN(21, debug1)
-
-    OUN(26, debug2)
 end
