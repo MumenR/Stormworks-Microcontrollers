@@ -15,7 +15,7 @@ do
     simulator = simulator
     simulator:setScreen(1, "3x3")
 
-    simulator:setProperty("Weapon Type", 1)
+    simulator:setProperty("Weapon Type", 1) -- 0: Bertha, 1: Artillery, 2: Battle, 3: Heavy Auto, 4: Rotary Auto, 5: Light Auto, 6: Machine Gun, 7: Rocket Launcher
     simulator:setProperty("standby yaw position (degree)", 0)
     simulator:setProperty("min pitch (degree)", -15)
     simulator:setProperty("max pitch (degree)", 90)
@@ -41,22 +41,30 @@ do
         -- touchscreen defaults
         local screenConnection = simulator:getTouchScreen(1)
 
-        for i = 1, 6 do
+        for i = 1, 3 do
            simulator:setInputBool(i, simulator:getIsToggled(i))
            simulator:setInputNumber(i, simulator:getSlider(i)*1000)
         end
 
-        
-        simulator:setInputNumber(1, 0)
-        simulator:setInputNumber(2, 1000)
+        for i = 4, 9 do
+           simulator:setInputBool(i, simulator:getIsToggled(i))
+           simulator:setInputNumber(i, simulator:getSlider(i))
+        end
+
+        --[[
+        simulator:setInputNumber(1, 100)
+        simulator:setInputNumber(2, 100)
         simulator:setInputNumber(3, 0)
-        simulator:setInputNumber(4, 1)
+        simulator:setInputNumber(4, 0)
         simulator:setInputNumber(5, 0)
         simulator:setInputNumber(6, 0)
-        
+        simulator:setInputNumber(7, 0)
+        simulator:setInputNumber(8, 0/60/60)
+        simulator:setInputNumber(9, 0)
+        ]]
 
         simulator:setInputNumber(25, 40)
-        simulator:setInputNumber(26, 0.0)
+        simulator:setInputNumber(26, simulator:getSlider(10) - 0.5)
     end;
 end
 ---@endsection
@@ -88,8 +96,9 @@ I = 0
 D = 20
 ALT_INTERVAL = 500                          --数値積分の高度間隔[m]
 MAX_INTERVAL = math.sqrt(240*ALT_INTERVAL)  --数値積分の最大ステップ幅[tick]
-MAX_ITERATION_I = 20                        --イテレーション最大回数
-ITERATION_FIN_ERROR = 0.1                   --イテレーション終了条件[m]
+MAX_ITERATION_I = 8                        --イテレーション最大回数
+ELEVATION_MAX_ERROR = 0.1                   --仰角割線法許容誤差[m]
+AZIMUTH_MAX_ERROR = 0.001                   --方位角割線法許容誤差[rad]
 
 INFTY = 10000
 PIVOT_MAX_ERROR = 2 --degree
@@ -163,19 +172,20 @@ do
     --オイラー法で数値積分(h: ステップ幅, s: {x, y, z, vx, vy, vz, ax, ay, az})
     --return h, s
     function eulerTrajectory(h, s)
-        debug1 = debug1 + 1
-        local exp, z, g, atm
+        --debug1 = debug1 + 1
+        local exp, z, g, atm, ax, ay, az
         local sNew = {}
         exp = math.exp(-K*h)
         z = calTrajectoryXV(s[3], s[6], s[9], h/2, math.exp(-K*h/2))
         g, atm = calGrav(z), calAtm(z)
-        sNew[7] = -windVx*atm*WIND_INFLUENCE/60
-        sNew[8] = -windVy*atm*WIND_INFLUENCE/60
-        sNew[9] = -g
-        sNew[1], sNew[4] = calTrajectoryXV(s[1], s[4], sNew[7], h, exp)
-        sNew[2], sNew[5] = calTrajectoryXV(s[2], s[5], sNew[8], h, exp)
-        sNew[3], sNew[6] = calTrajectoryXV(s[3], s[6], sNew[9], h, exp)
-        h = clamp(ALT_INTERVAL/math.abs(sNew[6]), 60, MAX_INTERVAL)
+        ax = s[7] - windVx*atm*WIND_INFLUENCE/60
+        ay = s[8] - windVy*atm*WIND_INFLUENCE/60
+        az = s[9] - g
+        sNew[1], sNew[4] = calTrajectoryXV(s[1], s[4], ax, h, exp)
+        sNew[2], sNew[5] = calTrajectoryXV(s[2], s[5], ay, h, exp)
+        sNew[3], sNew[6] = calTrajectoryXV(s[3], s[6], az, h, exp)
+        sNew[7], sNew[8], sNew[9] = s[7], s[8], s[9]
+        h = clamp(ALT_INTERVAL/math.abs(sNew[6]), 30, MAX_INTERVAL)
         return h, sNew
     end
 
@@ -234,20 +244,19 @@ do
         end
     end
 
-    --割線法更新(2変数版)
-    function secantMethod(X, lastX, F, lastF)
-        local det1, det2, newX = F[1] - lastF[1], F[2] - lastF[2], {}
-        if det1 == 0 then
-            newX[1] = X[1] + 0.001
+    --割線法更新
+    function secantMethod(x, xLast, f, fLast, MAX_ERROR)
+        local det = f - fLast
+        if math.abs(f) > math.abs(fLast)*1.1 then --誤差が増加したら更新量を半分に
+            xNew = (xLast + x)/2
+        elseif (math.abs(det) < MAX_ERROR*0.1 or x == xLast) and math.abs(f) > MAX_ERROR then
+            xNew = x + 0.001
+        elseif math.abs(f) < MAX_ERROR then
+            xNew = x
         else
-            newX[1] = X[1] - F[1]*(X[1] - lastX[1])/det1
+            xNew = x - f*(x - xLast)/det
         end
-        if det2 == 0 then
-            newX[2] = X[2] + 0.001
-        else
-            newX[2] = X[2] - F[2]*(X[2] - lastX[2])/det2
-        end
-        return newX
+        return xNew
     end
 
     --風速をワールド風速に変換
@@ -282,7 +291,7 @@ do
     end
 
     --未来位置予測(return: x, y, z, vx, vy, vz, ax, ay, az)
-    function predictTRD1(x, y, z, vx, vy, vz, ax, ay, az, t)
+    function predictTRD1(t, x, y, z, vx, vy, vz, ax, ay, az)
         return ax*t*t/2 + vx*t + x, ay*t*t/2 + vy*t + y, az*t*t/2 + vz*t + z, ax*t + vx, ay*t + vy, az*t + vz, ax, ay, az
     end
 
@@ -377,7 +386,7 @@ do
 end
 
 function onTick()
-    debug1 = 0
+    --debug1 = 0
 
     --インプット
     do
@@ -411,20 +420,26 @@ function onTick()
         windLv = INN(25)/60
         windLdirec = INN(26)
 
+        DEGREE = " (degree)"
         WPN_TYPE = PRN("Weapon Type") + 1
-        STANDBY_YAW = PRN("standby yaw position (degree)")/360
-        MIN_PITCH = PRN("min pitch (degree)")/360
-        MAX_PITCH = PRN("max pitch (degree)")/360
+        STANDBY_YAW = PRN("standby yaw position"..DEGREE)/360
+        MIN_PITCH = PRN("min pitch"..DEGREE)/360
+        MAX_PITCH = PRN("max pitch"..DEGREE)/360
         PITCH_LIMIT_ENABLE = PRB("Pitch Swivel Mode")
-        MIN_YAW = PRN("min yaw (degree)")/360
-        MAX_YAW = PRN("max yaw (degree)")/360
+        MIN_YAW = PRN("min yaw"..DEGREE)/360
+        MAX_YAW = PRN("max yaw"..DEGREE)/360
         YAW_LIMIT_ENABLE = PRB("Yaw Swivel Mode")
         MAX_SPEED_GAIN = PRN("Pivot rotation speed gain")
         PITCH_PIVOT = PRN("Pitch gear ratio (1 : ?)")/PRN("Types of Pitch PIVOT")   --gear/pivot
         YAW_PIVOT = PRN("Yaw gear ratio (1 : ?)")/PRN("Types of Yaw PIVOT")
-        OFFSET_X = PRN("Turret phy. offset x (m)")
-        OFFSET_Y = PRN("Turret phy. offset y (m)")
-        OFFSET_Z = PRN("Turret phy. offset z (m)")
+        TEXT = "Turret phy. offset "
+        PHY_OFFSET_X = PRN(TEXT.."x (m)")
+        PHY_OFFSET_Y = PRN(TEXT.."y (m)")
+        PHY_OFFSET_Z = PRN(TEXT.."z (m)")
+        TEXT = "Muzzle offset "
+        MUZ_OFFSET_X = PRN(TEXT.."x (m)")
+        MUZ_OFFSET_Y = PRN(TEXT.."y (m)")
+        MUZ_OFFSET_Z = PRN(TEXT.."z (m)")
 
         TRD1Exists = INB(1)
 
@@ -451,13 +466,13 @@ function onTick()
         isRocket = WPN_TYPE == 8
 
         --オフセット
-        TurPx, TurPz, TurPy = local2World(OFFSET_X, OFFSET_Y, OFFSET_Z, TurPx, TurPy, TurPz, BodEx, BodEy, BodEz)
+        TurPx, TurPz, TurPy = local2World(PHY_OFFSET_X, PHY_OFFSET_Y, PHY_OFFSET_Z, TurPx, TurPy, TurPz, BodEx, BodEy, BodEz)
 
         --自分基準ワールド座標系へ
         TWLx, TWLy, TWLz = Tx - TurPx, Ty - TurPz, Tz - TurPy
 
         --遅れ補正
-        TWLx, TWLy, TWLz, Tvx, Tvy, Tvz = predictTRD1(TWLx, TWLy, TWLz, Tvx, Tvy, Tvz, Tax, Tay, Taz, TRD1_DELAY)
+        TWLx, TWLy, TWLz, Tvx, Tvy, Tvz = predictTRD1(TRD1_DELAY, TWLx, TWLy, TWLz, Tvx, Tvy, Tvz, Tax, Tay, Taz)
 
         --ビークル速度
         Wvx, Wvy, Wvz = local2World(BodPvx, BodPvz, BodPvy, 0, 0, 0, BodEx, BodEy, BodEz)
@@ -475,7 +490,7 @@ function onTick()
             tick = math.sqrt(TWLx*TWLx + TWLy*TWLy + TWLz*TWLz)/(V0 + (isRocket and 600 or 0))
 
             --方位角仮定
-            futureX, futureY, futureZ = predictTRD1(TWLx, TWLy, TWLz, Tvx, Tvy, Tvz, Tax, Tay, Taz, tick)
+            futureX, futureY, futureZ = predictTRD1(tick, TWLx, TWLy, TWLz, Tvx, Tvy, Tvz, Tax, Tay, Taz)
             Azimuth = math.atan(futureX, futureY)
             goalX, goalY, goalZ = world2BallisticLocal(TWLx, TWLy, TWLz, Azimuth)
 
@@ -490,14 +505,14 @@ function onTick()
 
                 --仰角からgolaYの時のzを求める(風なし)
                 function brentsFunc(b)
-                    return goalY*(V0*math.sin(b) + g/K)/V0/math.cos(b) + g*math.log(1 - K*goalY/V0/math.cos(b))/(K*K) - goalZ
+                    return goalY*(V0Border*math.sin(b) + g/K)/V0Border/math.cos(b) + g*math.log(1 - K*goalY/V0Border/math.cos(b))/(K*K) - goalZ
                 end
 
                 --直射解
                 directTheta = brentsMethod(highAngleBorder, math.atan(goalZ, goalY), brentsFunc(highAngleBorder), brentsFunc(math.atan(goalZ, goalY)), brentsFunc, 10, (0.1/360)*pi2)
 
                 --曲射解
-                indirectTheta = brentsMethod(highAngleBorder, math.acos(K*goalY/V0) - 0.001, brentsFunc(highAngleBorder), brentsFunc(math.acos(K*goalY/V0) - 0.001), brentsFunc, 10, (0.1/360)*pi2)
+                indirectTheta = brentsMethod(highAngleBorder, math.acos(K*goalY/V0Border) - 0.001, brentsFunc(highAngleBorder), brentsFunc(math.acos(K*goalY/V0Border) - 0.001), brentsFunc, 10, (0.1/360)*pi2)
 
                 --境界条件をより余裕のある値へ(平均)
                 highAngleBorder = (directTheta + indirectTheta)/2
@@ -507,147 +522,174 @@ function onTick()
             Elevation = highAngleEnable and indirectTheta or directTheta
         end
 
+        IndexI = 0
+
         --イテレーション
-        for i = 1, MAX_ITERATION_I do
-            lastIndex = i
+        for j = 1, MAX_ITERATION_I do
+            lastIndexJ = j
+            for i = 1, MAX_ITERATION_I do
+                IndexI = IndexI + 1
 
-            --ターゲット座標(砲弾方向基準ローカル座標系)
-            TGTx, TGTy, TGTz = world2BallisticLocal(TWLx, TWLy, TWLz, Azimuth)
-            TGTvx, TGTvy, TGTvz = world2BallisticLocal(Tvx, Tvy, Tvz, Azimuth)
-            TGTax, TGTay, TGTaz = world2BallisticLocal(Tax, Tay, Taz, Azimuth)
-            TGT0 = {TGTx, TGTy, TGTz, TGTvx, TGTvy, TGTvz, TGTax, TGTay, TGTaz}
-            TGT = {table.unpack(TGT0)}
-            TGTLast = {table.unpack(TGT0)}
+                --ターゲット座標(砲弾方向基準ローカル座標系)
+                TGTx, TGTy, TGTz = world2BallisticLocal(TWLx, TWLy, TWLz, Azimuth)
+                TGTvx, TGTvy, TGTvz = world2BallisticLocal(Tvx, Tvy, Tvz, Azimuth)
+                TGTax, TGTay, TGTaz = world2BallisticLocal(Tax, Tay, Taz, Azimuth)
+                TGT0 = {TGTx, TGTy, TGTz, TGTvx, TGTvy, TGTvz, TGTax, TGTay, TGTaz}
+                TGT = {table.unpack(TGT0)}
+                TGTLast = {table.unpack(TGT0)}
 
-            --砲弾方向に風とビークル速度を成分分解
-            windVx = windWv*math.sin(windWdirec - Azimuth)
-            windVy = windWv*math.cos(windWdirec - Azimuth)
+                --砲弾方向に風とビークル速度を成分分解
+                windVx = windWv*math.sin(windWdirec - Azimuth)
+                windVy = windWv*math.cos(windWdirec - Azimuth)
 
-            --ビークル速度を加算した砲弾初速を計算
-            v0X = Wvxy*math.sin(WvxyDirec - Azimuth)
-            v0Y = V0*math.cos(Elevation) + Wvxy*math.cos(WvxyDirec - Azimuth)
-            v0Z = V0*math.sin(Elevation) + Wvz
+                --ビークル速度を加算した砲弾初速を計算
+                v0X = Wvxy*math.sin(WvxyDirec - Azimuth)
+                v0Y = V0*math.cos(Elevation) + Wvxy*math.cos(WvxyDirec - Azimuth)
+                v0Z = V0*math.sin(Elevation) + Wvz
 
-            --ロケット
-            rocketAy = ROCKET_ACL*math.cos(Elevation)
-            rocketAz = ROCKET_ACL*math.sin(Elevation)
+                --数値積分初期値
+                g, atm = calGrav(TurPy), calAtm(TurPy)
+                s = {MUZ_OFFSET_X, MUZ_OFFSET_Y, MUZ_OFFSET_Z, v0X, v0Y, v0Z, 0, 0, 0}
 
-            --数値積分初期値
-            g, atm = calGrav(TurPy), calAtm(TurPy)
-            s = {0, 0, 0, v0X, v0Y, v0Z, -windVx*atm*WIND_INFLUENCE/60, -windVy*atm*WIND_INFLUENCE/60, -g}
+                --ロケット
+                rocketAy = ROCKET_ACL*math.cos(Elevation)
+                rocketAz = ROCKET_ACL*math.sin(Elevation)
 
-            local h, sLast, hLast = 60, s, 60
-            tick = 0    --発射からの経過時間
+                local h, sLast = 60, s
+                tick = 0    --発射からの経過時間
 
-            isArrived = false
+                isArrived = false
 
-            --ロケットの加速
-            if isRocket then
-                local function brentsFunc(b)
-                    TGT = {predictTRD1(TGT0[1], TGT0[2], TGT0[3], TGT0[4], TGT0[5], TGT0[6], TGT0[7], TGT0[8], TGT0[9], b)}
-                    local fh, fs = eulerTrajectory(b, sLast)
-                    return fs[2] - TGT[2], fh, fs
+                --ロケットの加速
+                if isRocket then
+                    s[8] = rocketAy
+                    s[9] = rocketAz
+                    local function brentsFunc(b)
+                        TGT = {predictTRD1(b, table.unpack(TGT0))}
+                        local fh, fs = eulerTrajectory(b, sLast)
+                        return fs[2] - TGT[2], fh, fs
+                    end
+
+                    fb, h, s = brentsFunc(60)
+                    TGT = {predictTRD1(60, table.unpack(TGT0))}
+                    
+                    --目標y座標の通過判定
+                    isArrived = fb > 0 and not highAngleEnable
+
+                    --目標を通過したら正確な位置とステップ幅を再計算
+                    if isArrived then
+                        h = brentsMethod(0, 60, -TGT0[2], fb, brentsFunc, 10, 0.01)
+                        _, h, s = brentsFunc(h)
+                    end
+
+                    s[8] = 0
+                    s[9] = 0
+                    tick, sLast = h, s
+                    TGTLast = {table.unpack(TGT)}
                 end
 
-                fb, h, s = brentsFunc(60)
-                TGT = {predictTRD1(TGT0[1], TGT0[2], TGT0[3], TGT0[4], TGT0[5], TGT0[6], TGT0[7], TGT0[8], TGT0[9], 60)}
-                
-                --目標y座標の通過判定
-                isArrived = fb > 0 and not highAngleEnable
+                --数値積分
+                for k = 1, 40 do
+                    --終了条件
+                    if isArrived or tick > tickDel then
+                        break
+                    end
 
-                --目標を通過したら正確な位置とステップ幅を再計算
-                if isArrived then
-                    h = brentsMethod(0, 60, -TGT0[2], fb, brentsFunc, 10, 0.01)
-                    h, s = brentsFunc(h)
+                    --更新
+                    TGT = {predictTRD1(tick + h, table.unpack(TGT0))}
+                    hNew, s = eulerTrajectory(h, s)
+
+                    function brentsFunc(b)
+                        TGT = {predictTRD1(tick + b, table.unpack(TGT0))}
+                        _, s = eulerTrajectory(b, sLast)
+                        return highAngleEnable and (s[3] - TGT[3]) or (s[2] - TGT[2])
+                    end
+
+                    --目標を通過したら正確な位置とステップ幅を再計算(ブレント法)
+                    if highAngleEnable and s[3] < TGT[3] and s[6] < 0 then   --曲射
+
+                        h = brentsMethod(0, h, sLast[3] - TGTLast[3], s[3] - TGT[3], brentsFunc, 10, 0.01)
+                        _, s = eulerTrajectory(h, sLast)
+
+                        isArrived = true
+                    elseif not highAngleEnable and s[2] > TGT[2] then        --直射
+
+                        h = brentsMethod(0, h, sLast[2] - TGTLast[2], s[2] - TGT[2], brentsFunc, 10, 0.01)
+                        _, s = eulerTrajectory(h, sLast)
+
+                        isArrived = true
+                    end
+
+                    tick = tick + h
+                    h = hNew
+                    sLast = {table.unpack(s)}
+                    TGTLast = {table.unpack(TGT)}
                 end
-                tick, sLast = h, s
-                TGTLast = {table.unpack(TGT)}
+
+                --[[
+                OUN(23, s[1] - TGT[1])
+                OUN(24, s[2] - TGT[2])
+                OUN(25, s[3] - TGT[3])
+                ]]
+
+                --仰角更新(割線法)
+                do
+                    local ElevationMin, ElevationMax = highAngleEnable and highAngleBorder or -pi2/4, highAngleEnable and (pi2/2 - highAngleBorder) or highAngleBorder
+
+                    fEle = highAngleEnable and (TGT[2] - s[2]) or (TGT[3] - s[3]) --誤差
+
+                    --イテレーション終了条件
+                    if math.abs(fEle) < ELEVATION_MAX_ERROR then
+                        break
+                    end
+
+                    if i == 1 then  --初期更新は幾何的に
+                        if highAngleEnable then
+                            if fEle > 0 then
+                                newElevation = (Elevation + ElevationMin)/2
+                            else
+                                newElevation = pi2/4 - (TGT[2]/s[2])*(pi2/4 - Elevation)
+                            end
+                        else
+                            newElevation = Elevation + math.atan(TGT[3], TGT[2]) - math.atan(s[3], s[2])
+                        end
+                    else            --２回目以降の更新は割線法
+                        newElevation = secantMethod(Elevation, xEleLast, fEle, fEleLast, ELEVATION_MAX_ERROR)
+                    end
+
+                    xEleLast = Elevation
+                    fEleLast = fEle
+                    Elevation = clamp(newElevation, ElevationMin, ElevationMax)
+                end
             end
 
-            --数値積分
-            for k = 1, 40 do
-                --終了条件
-                if isArrived or tick > tickDel then
-                    break
-                end
-
-                --更新
-                TGT = {predictTRD1(TGT0[1], TGT0[2], TGT0[3], TGT0[4], TGT0[5], TGT0[6], TGT0[7], TGT0[8], TGT0[9], tick + h)}
-                hNew, s = eulerTrajectory(h, s)
-
-                function brentsFunc(b)
-                    TGT = {predictTRD1(TGT0[1], TGT0[2], TGT0[3], TGT0[4], TGT0[5], TGT0[6], TGT0[7], TGT0[8], TGT0[9], tick + b)}
-                    _, s = eulerTrajectory(b, sLast)
-                    return highAngleEnable and (s[3] - TGT[3]) or (s[2] - TGT[2])
-                end
-
-                --目標を通過したら正確な位置とステップ幅を再計算(ブレント法)
-                if highAngleEnable and s[3] < TGT[3] and s[6] < 0 then   --曲射
-
-                    h = brentsMethod(0, h, sLast[3] - TGTLast[3], s[3] - TGT[3], brentsFunc, 10, 0.01)
-                    _, s = eulerTrajectory(h, sLast)
-
-                    isArrived = true
-                elseif not highAngleEnable and s[2] > TGT[2] then        --直射
-
-                    h = brentsMethod(0, h, sLast[2] - TGTLast[2], s[2] - TGT[2], brentsFunc, 10, 0.01)
-                    _, s = eulerTrajectory(h, sLast)
-
-                    isArrived = true
-                end
-
-                tick = tick + h
-                h = hNew
-                sLast = {table.unpack(s)}
-                TGTLast = {table.unpack(TGT)}
-            end
-
-            OUN(23, s[1] - TGT[1])
-            OUN(24, s[2] - TGT[2])
-            OUN(25, s[3] - TGT[3])
-
-            --仰角、方位角更新(割線法)
+            --方位角更新(割線法)
             do
-                X = {Azimuth, Elevation}    --変数ベクトル
-                if highAngleEnable then         --誤差ベクトル
-                    F = {s[1] - TGT[1], s[2] - TGT[2]}
-                else
-                    F = {s[1] - TGT[1], s[3] - TGT[3]}
-                end
-                errorNormLast = errorNorm or math.huge
-                errorNorm = distance2(F[1], F[2])
+                fAzi = math.atan(TGT[1], TGT[2]) - math.atan(s[1], s[2])
+                xNorm = math.abs(TGT[1] - s[1])
 
                 --イテレーション終了条件
-                if errorNorm < ITERATION_FIN_ERROR then
+                if math.abs(fAzi) < AZIMUTH_MAX_ERROR then
                     break
                 end
 
-                if i == 1 then  --初期更新は幾何的に
-                    if highAngleEnable then
-                        Elevation = pi2/4 - (TGT[2]/s[2])*(pi2/4 - Elevation)
-                    else
-                        Elevation = Elevation + math.atan(TGT[3], TGT[2]) - math.atan(s[3], s[2])
-                    end
-                    Azimuth = Azimuth + math.atan(TGT[1], TGT[2]) - math.atan(s[1], s[2])
-                else            --２回目以降の更新は割線法
-                    local a, b, Xnew
-                    Xnew = secantMethod(X, XLast, F, FLast)
-                
-                    a = highAngleEnable and highAngleBorder or -pi2/4
-                    b = highAngleEnable and (pi2/2 - highAngleBorder) or highAngleBorder
-                    Azimuth = clamp(Xnew[1], -pi2/2, pi2/2)
-                    Elevation = clamp(Xnew[2], a, b)
+                if j == 1 then
+                    newAzimuth = Azimuth + math.atan(TGT[1], TGT[2]) - math.atan(s[1], s[2])
+                else
+                    newAzimuth = secantMethod(Azimuth, xAziLast, fAzi, fAziLast, AZIMUTH_MAX_ERROR)
                 end
 
-                XLast = {table.unpack(X)}
-                FLast = {table.unpack(F)}
+                xAziLast = Azimuth
+                fAziLast = fAzi
+                Azimuth = newAzimuth
             end
         end
 
         --射程内判定
-        inRange = tick < tickDel and lastIndex ~= MAX_ITERATION_I
+        inRange = tick < tickDel and fAzi < AZIMUTH_MAX_ERROR and math.abs(fEle) < ELEVATION_MAX_ERROR
 
-        OUN(22, lastIndex)
+        OUN(21, IndexI)
+        OUN(22, lastIndexJ)
     else
         Azimuth, Elevation = 0, 0
         rotation_speed_pitch, rotation_speed_yaw = 0, 0
@@ -751,5 +793,5 @@ function onTick()
     OUN(31, Elevation)
     OUN(32, Azimuth)
 
-    OUN(21, debug1)
+    --OUN(21, debug1)
 end
