@@ -24,21 +24,9 @@ do
     ---@param simulator Simulator Use simulator:<function>() to set inputs etc.
     ---@param ticks     number Number of ticks since simulator started
     function onLBSimulatorTick(simulator, ticks)
-
-        -- touchscreen defaults
-        local screenConnection = simulator:getTouchScreen(1)
-        simulator:setInputBool(1, screenConnection.isTouched)
-        simulator:setInputNumber(1, screenConnection.width)
-        simulator:setInputNumber(2, screenConnection.height)
-        simulator:setInputNumber(3, screenConnection.touchX)
-        simulator:setInputNumber(4, screenConnection.touchY)
-
-        -- NEW! button/slider options from the UI
-        simulator:setInputBool(31, simulator:getIsClicked(1))       -- if button 1 is clicked, provide an ON pulse for input.getBool(31)
-        simulator:setInputNumber(31, simulator:getSlider(1))        -- set input 31 to the value of slider 1
-
-        simulator:setInputBool(32, simulator:getIsToggled(2))       -- make button 2 a toggle, for input.getBool(32)
-        simulator:setInputNumber(32, simulator:getSlider(2) * 50)   -- set input 32 to the value from slider 2 * 50
+        for i = 1, 5 do
+            simulator:setInputBool(i, simulator:getIsToggled(i))
+        end
     end;
 end
 ---@endsection
@@ -49,11 +37,37 @@ end
 -- try require("Folder.Filename") to include code from another file in this, so you can store code in libraries
 -- the "LifeBoatAPI" is included by default in /_build/libs/ - you can use require("LifeBoatAPI") to get this, and use all the LifeBoatAPI.<functions>!
 
-ticks = 0
+INN = input.getNumber
+INB = input.getBool
+OUN = output.setNumber
+OUB = output.setBool
+PRN = property.getNumber
+PRB = property.getBool
+PRT = property.getText
+
 function onTick()
-    ticks = ticks + 1
+    fire = INB(1)
+    draining = INB(2)
+    O2In = INB(3)
+    airIn = INB(4)
+    airOut = INB(5)
 end
 
 function onDraw()
-    screen.drawCircle(16,16,5)
+    screen.setColor(0, 255, 0)
+    if fire then
+        screen.drawText(6, 1, "FIRE")
+    end
+    if draining then
+        screen.drawText(4, 7, "DRAIN")
+    end
+    if O2In then
+        screen.drawText(5, 13, "O2 IN")
+    end
+    if airIn then
+        screen.drawText(4, 19, "AIRIN")
+    end
+    if airOut then
+        screen.drawText(2, 25, "AIROUT")
+    end
 end

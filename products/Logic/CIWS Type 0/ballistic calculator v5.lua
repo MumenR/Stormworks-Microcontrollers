@@ -390,35 +390,35 @@ function onTick()
 
     --インプット
     do
-        Tx = INN(1)
-        Ty = INN(2)
-        Tz = INN(3)
-        Tvx = INN(4)
-        Tvy = INN(5)
-        Tvz = INN(6)
-        Tax = INN(7)
-        Tay = INN(8)
-        Taz = INN(9)
+        Tx = INN(3)
+        Ty = INN(4)
+        Tz = INN(5)
+        Tvx = INN(6)
+        Tvy = INN(7)
+        Tvz = INN(8)
+        Tax = INN(9)
+        Tay = INN(10)
+        Taz = INN(11)
 
-        BodEx = INN(10)
-        BodEy = INN(11)
-        BodEz = INN(12)
-        BodPvx = INN(13)/60
-        BodPvy = INN(14)/60
-        BodPvz = INN(15)/60
-        BodPrvx = INN(16)*pi2/60
-        BodPrvy = INN(17)*pi2/60
-        BodPrvz = INN(18)*pi2/60
+        BodEx = INN(12)
+        BodEy = INN(13)
+        BodEz = INN(14)
+        BodPvx = INN(15)/60
+        BodPvy = INN(16)/60
+        BodPvz = INN(17)/60
+        BodPrvx = INN(18)*pi2/60
+        BodPrvy = INN(19)*pi2/60
+        BodPrvz = INN(20)*pi2/60
 
-        TurPx = INN(19)
-        TurPy = INN(20)
-        TurPz = INN(21)
-        TurEx = INN(22)
-        TurEy = INN(23)
-        TurEz = INN(24)
+        TurPx = INN(21)
+        TurPy = INN(22)
+        TurPz = INN(23)
+        TurEx = INN(24)
+        TurEy = INN(25)
+        TurEz = INN(26)
 
-        windLv = INN(25)/60
-        windLdirec = INN(26)
+        windLv = INN(27)/60
+        windLdirec = INN(28)
 
         DEGREE = " (degree)"
         WPN_TYPE = PRN("Weapon Type") + 1
@@ -440,14 +440,12 @@ function onTick()
         MUZ_OFFSET_X = PRN(TEXT.."x (m)")
         MUZ_OFFSET_Y = PRN(TEXT.."y (m)")
         MUZ_OFFSET_Z = PRN(TEXT.."z (m)")
-        MUZ_OFFSET_YZ = distance2(MUZ_OFFSET_Y, MUZ_OFFSET_Z)
-        MUZ_OFFSET_YZ_ANGLE = math.atan(MUZ_OFFSET_Z, MUZ_OFFSET_Y)
 
         TRD1Exists = INB(1)
 
-        power = INB(2)
-        highAngleEnable = INB(4)
-        reloadEnable = INB(5)
+        power = INB(9)
+        highAngleEnable = INB(10)
+        reloadEnable = INB(11)
 
     end
 
@@ -468,7 +466,7 @@ function onTick()
         isRocket = WPN_TYPE == 8
 
         --オフセット
-        TurPx, TurPz, TurPy = local2World(PHY_OFFSET_X, PHY_OFFSET_Y, PHY_OFFSET_Z, TurPx, TurPy, TurPz, TurEx, TurEy, TurEz)
+        TurPx, TurPz, TurPy = local2World(PHY_OFFSET_X, PHY_OFFSET_Y, PHY_OFFSET_Z, TurPx, TurPy, TurPz, BodEx, BodEy, BodEz)
 
         --自分基準ワールド座標系へ
         TWLx, TWLy, TWLz = Tx - TurPx, Ty - TurPz, Tz - TurPy
@@ -551,7 +549,7 @@ function onTick()
 
                 --数値積分初期値
                 g, atm = calGrav(TurPy), calAtm(TurPy)
-                s = {MUZ_OFFSET_X, MUZ_OFFSET_YZ*math.cos(MUZ_OFFSET_YZ_ANGLE + Elevation), MUZ_OFFSET_YZ*math.sin(MUZ_OFFSET_YZ_ANGLE + Elevation), v0X, v0Y, v0Z, 0, 0, 0}
+                s = {MUZ_OFFSET_X, MUZ_OFFSET_Y, MUZ_OFFSET_Z, v0X, v0Y, v0Z, 0, 0, 0}
 
                 --ロケット
                 rocketAy = ROCKET_ACL*math.cos(Elevation)
@@ -628,9 +626,11 @@ function onTick()
                     TGTLast = {table.unpack(TGT)}
                 end
 
+                --[[
                 OUN(23, s[1] - TGT[1])
                 OUN(24, s[2] - TGT[2])
                 OUN(25, s[3] - TGT[3])
+                ]]
 
                 --仰角更新(割線法)
                 do

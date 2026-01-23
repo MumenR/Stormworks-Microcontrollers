@@ -56,6 +56,7 @@ t = 0
 deltaCO2Tick = 300      --最小二乗法のサンプル数
 danger = false
 draining = false
+O2In = false
 CO2RatioTable = {}
 
 function onTick()
@@ -75,8 +76,7 @@ function onTick()
     waterCapacity = INN(2)
     waterRatio = 100*water/waterCapacity
 
-    canEnter = PRB("The type of custome tank")
-    useO2 = PRB("Use O2 tanks")
+    canEnter = PRB("The type of custom tank")
 
     --危険表示
     if pressure >= 4 or pressure <= 0.12 or O2Ratio <= 15 or CO2Ratio >= 10 then
@@ -92,6 +92,13 @@ function onTick()
         draining = false
     end
 
+    --低酸素対策
+    if O2Ratio < 20 then
+        O2In = true
+    elseif O2Ratio > 21 then
+        O2In = false
+    end
+
     --気圧設定
     if canEnter and draining then
         targetAtm = 3.8
@@ -104,15 +111,15 @@ function onTick()
     OUN(1, O2Ratio)
     OUN(2, CO2Ratio)
     OUN(3, pressure)
+    OUN(4, waterRatio)
 
-    OUB(5, pressure - targetAtm < 0.05)     --air in
-    OUB(6, pressure - targetAtm > 0.05)     --air out
-    OUB(7, draining)                        --water out
+    OUB(1, fire)
+    OUB(2, draining)
+    OUB(3, O2In)
+    OUB(4, pressure - targetAtm < -0.05)     --air in
+    OUB(5, pressure - targetAtm > 0.05)     --air out
 
     t = t + 1
-
-    --debug
-    OUN(32, deltaCO2)
 end
 
 function onDraw()
