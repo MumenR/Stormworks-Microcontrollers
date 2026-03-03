@@ -1,20 +1,11 @@
-x = {1, 2, 3, 4, 5, 6}
-a, b, c, d, e, f = 1, 2, 3, 4, 5, 6
+x = 1126.42698639876
+X = {x}
 
 local t0 = os.clock()
 
-function test(x)
-    return x
-end
-
 -- 計測したい処理
-for i = 1, 1000000 do
-    x[1] = i
-    x[2] = i
-    x[3] = i
-    x[4] = i
-    x[5] = i
-    x[6] = i
+for i = 1, 10000000 do
+    y = X[1]
 end
 
 local t1 = os.clock()
@@ -25,8 +16,8 @@ print(t1 - t0)
 local t0 = os.clock()
 
 -- 計測したい処理
-for i = 1, 1000000 do
-    a, b, c, d, e, f = i, i, i, i, i, i
+for i = 1, 10000000 do
+    y = {x}
 end
 
 local t1 = os.clock()

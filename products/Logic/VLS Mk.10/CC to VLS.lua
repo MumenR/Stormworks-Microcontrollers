@@ -64,6 +64,7 @@ time_out_tick_ELI = 3
 
 function onTick()
     is_ELI = INB(1)
+    is_manual = INB(2)
     is_fire = INN(31) == 1
 
     WPN_No = INN(29)
@@ -75,7 +76,7 @@ function onTick()
     for ID, data in pairs(target_data) do
         data.t = data.t + 1
         data.t_out = data.t_out + 1
-        if (data.t > time_out_tick and ID ~= -1) or (data.t > time_out_tick_ELI and ID == -1) then
+        if (data.t > time_out_tick and ID > -1) or (data.t > time_out_tick_ELI and ID <= -1) then
             target_data[ID] = nil
         end
     end
@@ -83,6 +84,7 @@ function onTick()
     --ELIデータ削除
     if is_fire and not is_fire_pulse then
         target_data[-1] = nil
+        target_data[-2] = nil
     end
 
     --武器データ取り込み weapon_data
@@ -137,22 +139,23 @@ function onTick()
     ]]
     if is_ELI then
         --初回登録
-        if target_data[-1] == nil then
-            target_data[-1] = {
-                ID = -1,
+        local ID = is_manual and -2 or -1
+        if target_data[ID] == nil then
+            target_data[ID] = {
+                ID = ID,
                 t_out = math.huge,
                 is_output = false,
                 mode = mode,
                 no = WPN_No
             }
         end
-        target_data[-1].x = INN(1)
-        target_data[-1].y = INN(2)
-        target_data[-1].z = INN(3)
-        target_data[-1].vx = INN(4)
-        target_data[-1].vy = INN(5)
-        target_data[-1].vz = INN(6)
-        target_data[-1].t = 0
+        target_data[ID].x = INN(1)
+        target_data[ID].y = INN(2)
+        target_data[ID].z = INN(3)
+        target_data[ID].vx = INN(4)
+        target_data[ID].vy = INN(5)
+        target_data[ID].vz = INN(6)
+        target_data[ID].t = 0
         --is_MTX
     else
         for i = 1, 4 do
@@ -199,7 +202,7 @@ function onTick()
     while i <= #target_data_sort and j <= 4 do
         local ID, No = target_data_sort[i].ID, target_data_sort[i].no
         --出力可能か判定(新規目標で、重複出力のときとnot is fireのパターンを除外)
-        if target_data[ID].is_output or (is_fire and not is_new_target_out) then
+        if target_data[ID].is_output or (is_fire and not is_new_target_out and (ID > 0 or (ID < 0 and not is_fire_pulse))) then
             --新規目標のとき
             if not target_data[ID].is_output then
                 --WPN busyではないことを確認
@@ -221,10 +224,12 @@ function onTick()
                         target_data[ID].t_out = 0
                         j = j + 1
 
-                        --ELIのとき
-                        if ID == -1 then
+                        --ELIまたは手動のとき
+                        if ID <= -1 then
                             OUB(1, true)
                         end
+
+                        OUB(32, true)
                     end
                 end
             --新規目標ではないとき
@@ -246,32 +251,3 @@ function onTick()
 
     is_fire_pulse = is_fire
 end
---[[
-function onDraw()
-    screen.drawText(1, 1, "#target_data:"..#target_data)
-
-    local i = 1
-    for ID, data in pairs(target_data) do
-        screen.drawText(1, i*7, "ID:"..data.ID)
-        i = i + 1
-        screen.drawText(1, i*7, "No:"..data.no)
-        i = i + 1
-        screen.drawText(1, i*7, "mode:"..data.mode)
-        i = i + 1
-
-        screen.drawText(1, i*7, "is_output:"..bool_to_text(data.is_output))
-        i = i + 1
-        screen.drawText(1, i*7, "is_wpnbusy:"..bool_to_text(weapon_data[data.no].is_wpnbusy))
-        i = i + 1
-    end
-end
-
-function bool_to_text(is)
-    if is then
-        return "True"
-    else
-        return "False"
-    end
-end
-
-]]

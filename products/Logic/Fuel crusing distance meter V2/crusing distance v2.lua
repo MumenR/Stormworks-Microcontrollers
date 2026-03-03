@@ -50,35 +50,14 @@ INB = input.getBool
 OUN = output.setNumber
 OUB = output.setBool
 
---y = ax + b を求める
+--移動平均を求める
 --y[i] = {y1, y2, y3...}
-function least_squares_method(y)
-    local ave_x = 0
-    local ave_y = 0
-
+function moving_average(y)
+    local sum = 0
     for i = 1, #y do
-        ave_x = ave_x + i 
-        ave_y = ave_y + y[i]
+        sum = sum + y[i]
     end
-
-    ave_x = ave_x/#y
-    ave_y = ave_y/#y
-
-    local Sx2 = 0
-    local Sxy = 0
-
-    for i = 1, #y do
-        Sx2 = Sx2 + (i - ave_x)^2
-        Sxy = Sxy + (i - ave_x)*(y[i] - ave_y)
-    end
-
-    Sx2 = Sx2/#y
-    Sxy = Sxy/#y
-
-    local a = Sxy/Sx2
-    local b = ave_y - a*ave_x
-
-    return a, b
+    return sum/#y
 end
 
 speed_table = {}
@@ -102,13 +81,9 @@ function onTick()
         table.remove(fuel_flow_table, 1)
     end
 
-    --最小二乗法
-    speed_a, speed_b = least_squares_method(speed_table)
-    fuel_flow_a, fuel_flow_b = least_squares_method(fuel_flow_table)
-    
-    --平均の算出
-    speed = speed_a*(sample_num/2) + speed_b
-    fuel_flow = fuel_flow_a*(sample_num/2) + fuel_flow_b
+    --移動平均
+    speed = moving_average(speed_table)
+    fuel_flow = moving_average(fuel_flow_table)
 
     --その他計算
     voyage_time = (fuel/fuel_flow)/60

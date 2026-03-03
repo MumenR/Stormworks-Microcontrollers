@@ -1,3 +1,7 @@
+-- Author: MumenR
+-- GitHub: https://github.com/MumenR/Stormworks-Microcontrollers
+-- Workshop: https://steamcommunity.com/profiles/76561199060549727/myworkshopfiles/
+--
 --- Developed using LifeBoatAPI - Stormworks Lua plugin for VSCode - https://code.visualstudio.com/download (search "Stormworks Lua with LifeboatAPI" extension)
 --- If you have any issues, please report them here: https://github.com/nameouschangey/STORMWORKS_VSCodeExtension/issues - by Nameous Changey
 
@@ -13,7 +17,7 @@
 do
     ---@type Simulator -- Set properties and screen sizes here - will run once when the script is loaded
     simulator = simulator
-    simulator:setScreen(1, "3x3")
+    simulator:setScreen(1, "1x1")
     simulator:setProperty("ExampleNumberProperty", 123)
 
     -- Runs every tick just before onTick; allows you to simulate the inputs changing
@@ -50,107 +54,81 @@ INB = input.getBool
 OUN = output.setNumber
 OUB = output.setBool
 PRN = property.getNumber
-PRB = property.getBool
-PRT = property.getText
-t = 0
-deltaCO2Tick = 300      --最小二乗法のサンプル数
-danger = false
-draining = false
-O2In = false
-CO2RatioTable = {}
+touchPulse = false
+AHR = true
+mode = 1 -- 1:STD 2:CRZ 3:TOP 4:SEA
 
 function onTick()
-    fire = INB(1)
-    pumpAlive = INB(2)
-    
-    pressure = INN(3)
-    O2 = INN(11)
-    CO2 = INN(5)
-    N2 = INN(12)
-    H2 = INN(13)
-    Steam = INN(8)
-    air = O2 + CO2 + N2 + H2 + Steam
-    O2Ratio = 100*O2/air
-    CO2Ratio = 100*CO2/air
+    local w = INN(1)
+    local h = INN(2)
+    touchX = INN(3)
+    touchY = INN(4)
+    isTouched = INB(1)
 
-    water = INN(1)
-    waterCapacity = INN(2)
-    waterRatio = 100*water/waterCapacity
-
-    canEnter = PRB("The type of custom tank")
-
-    --危険表示
-    if pressure >= 4 or pressure <= 0.12 or O2Ratio <= 15 or CO2Ratio >= 10 then
-        danger = true
-    else
-        danger = false
+    if isTouched and not touchPulse then
+        if  touchY > 8 and touchY < 16 then        --AHRボタン
+            AHR = not AHR
+        elseif touchY > 16 and touchY < 32 then    --モードセレクター
+            if touchX > w/2 then
+                if touchY > 24 then
+                    mode = 4 -- SEA
+                elseif touchY < 24 then
+                    mode = 3 -- TOP
+                end
+            elseif touchX < w/2 then
+                if touchY > 24 then
+                    mode = 2 -- CRZ
+                elseif touchY < 24 then
+                    mode = 1 -- STD
+                end
+            end
+        end
     end
 
-    --浸水対策
-    if waterRatio > 1  then
-        draining = true
-    elseif waterRatio < 0.1 then
-        draining = false
-    end
+    OUN(1, (AHR and 100 or 0) + mode)
 
-    --低酸素対策
-    if O2Ratio < 20 then
-        O2In = true
-    elseif O2Ratio > 21 then
-        O2In = false
-    end
-
-    --気圧設定
-    if canEnter and draining then
-        targetAtm = 3.8
-    elseif canEnter then
-        targetAtm = 1
-    else
-        targetAtm = 40
-    end
-
-    OUN(1, O2Ratio)
-    OUN(2, CO2Ratio)
-    OUN(3, pressure)
-    OUN(4, waterRatio)
-    OUN(5, water)
-
-    OUB(1, fire)
-    OUB(2, draining)
-    OUB(3, not pumpAlive)
-    OUB(30, O2In)
-    OUB(31, pressure - targetAtm < -0.05)     --air in
-    OUB(32, pressure - targetAtm > 0.05)     --air out
-
-    t = t + 1
+    touchPulse = isTouched
 end
 
 function onDraw()
-    h = screen.getHeight()
-    w = screen.getWidth()
+    local w, h = screen.getWidth(), screen.getHeight()
+    --ライン
+    screen.setColor(0, 0, 64)
+    for i = 0, 3 do
+        screen.drawLine(0, i*8, w, i*8)
+    end
+    screen.drawLine(w/2, 16, w/2, 32)
 
-    if danger then
-        screen.setColor(255, 0, 0)
-        screen.drawClear()
+    --ボタン背景
+    if AHR then
+        screen.setColor(64, 64, 0)
+        screen.drawRectF(0, 9, w, 7)
+    end
+    if mode == 1 then
+        screen.setColor(64, 64, 0)
+        screen.drawRectF(0, 17, w/2, 7)
+    elseif mode == 2 then
+        screen.setColor(64, 64, 0)
+        screen.drawRectF(0, 25, w/2, 7)
+    elseif mode == 3 then
+        screen.setColor(64, 64, 0)
+        screen.drawRectF(w/2 + 1, 17, w/2 - 1, 7)
+    elseif mode == 4 then
+        screen.setColor(64, 64, 0)
+        screen.drawRectF(w/2 + 1, 25, w/2 - 1, 7)
     end
 
-    draw_pressure = string.format("%.2f", pressure)
-    draw_O2_ratio = string.format("%.1f%%", O2Ratio)
-    draw_CO2_ratio = string.format("%.2f%%", CO2Ratio)
-    
-    screen.setColor(0, 255, 0)
-    screen.drawText(w/2 - 7, h/2 - 14, "atm")
+    --タイトル背景
+    screen.setColor(48, 48, 128)
+    screen.drawRectF(0, 1, w, 7)
+
+    --文字
+    screen.setColor(0, 0, 64)
+    screen.drawText(w/2 - 10, 2, "SM 3")
     screen.setColor(255, 255, 255)
-    screen.drawText(w/2 - #draw_pressure*2.5, h/2 - 7, draw_pressure)
-
-    screen.setColor(0, 255, 0)
-    if t%360 < 180 then
-        screen.drawText(w/2 - 5, h/2 + 1, "o2")
-        screen.setColor(255, 255, 255)
-        screen.drawText(w/2 - #draw_O2_ratio*2.5, h/2 + 8, draw_O2_ratio)
-    else
-        screen.drawText(w/2 - 7, h/2 + 1, "co2")
-        screen.setColor(255, 255, 255)
-        screen.drawText(w/2 - #draw_CO2_ratio*2.5, h/2 + 8, draw_CO2_ratio)
-    end
+    screen.drawText(w/2 - 7, 10, "ARH")
+    screen.drawText(1, 18, "STD")
+    screen.drawText(1, 26, "CRZ")
+    screen.drawText(w/2 + 1, 18, "TOP")
+    screen.drawText(w/2 + 1, 26, "SEA")
 end

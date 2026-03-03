@@ -334,7 +334,6 @@ function onTick()
 
     mode = INN(25)%10
     terminal_guidance = INN(25)%100 > 10
-    manual_mode = INN(25)%1000 > 100
 
     launch = INB(9)
     fcs_detected = INB(10)
@@ -350,8 +349,7 @@ function onTick()
     SEA_SKIMMING_ALT = PRN("Sea skimming mode altitude [m]")
 
     --無線からの目標情報
-    input_coor = (manual_mode and not launch) or (not manual_mode and fcs_detected)
-    if input_coor then
+    if fcs_detected then
         Tx = INN(4)
         Ty = INN(8)
         Tz = INN(12)

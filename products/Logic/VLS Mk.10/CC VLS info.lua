@@ -73,9 +73,17 @@ PRT = property.getText
 
 time_out_tick = 100
 weapon_data = {}
+touchPulse = false
+selectedWpnNo = 0
 
 function onTick()
-    last_vls_info = INN(32)
+    local w, h = INN(1), INN(2)
+    touchX = INN(3)
+    touchY = INN(4)
+    isTouched = INB(1)
+
+    last_vls_info = INN(31)
+    selectedMode = INN(32)
 
     --時間経過処理とタイムアウト削除
     for NO, MODEL in pairs(weapon_data) do
@@ -138,19 +146,37 @@ function onTick()
     -- no の昇順でソート
     table.sort(weapon_data_sort, function(a, b) return a.no < b.no end)
 
+    --ボタン判定の設置
+    botunNum = math.min(#weapon_data_sort, math.floor(h/8) - 1) --表示可能な最大数
+    for i = 1, botunNum do
+        local btnY = i*8 + 1
+        if isTouched and not touchPulse and touchY >= btnY and touchY < btnY + 7 then
+            --ボタンが押されたとき、対応する武器モデルNo.を出力
+            selectedWpnNo = weapon_data_sort[i].no
+            break
+        end
+    end
+    touchPulse = isTouched
+
     --出力リセット
     for i = 1, 32 do
         OUN(i, 0)
     end
 
     for i = 1, #weapon_data_sort do
+        if i > 30 then
+            break
+        end
         OUN(i*2 - 1, weapon_data_sort[i].no)
         OUN(i*2 - 0, weapon_data_sort[i].qty)
     end
+
+    OUN(31, selectedWpnNo)
+    OUN(32, selectedMode)
 end
 
 function onDraw()
-    w, h = screen.getWidth(), screen.getHeight()
+    local w, h = screen.getWidth(), screen.getHeight()
 
     --ライン
     screen.setColor(0, 0, 64)
@@ -161,17 +187,38 @@ function onDraw()
 
     --ラベル
     screen.setColor(255, 255, 255)
-    screen.drawText(3*w/10 - 8, 1, "MSL")
-    screen.drawText(4*w/5 - 5, 1, "QTY")
-
+    if w == 32 then
+        screen.drawText(4*w/5 - 3, 1, "QT")
+        screen.drawText(3*w/10 - 7, 1, "WPN")
+    else
+        screen.drawText(4*w/5 - 5, 1, "QTY")
+        screen.drawText(3*w/10 - 8, 1, "WPN")
+    end
+    
     --名前と数量
     for i = 1, #weapon_data_sort do
-        local index, name, qty
-        index = weapon_data_sort[i].no
+        local no, name, qty
+        no = weapon_data_sort[i].no
         name = weapon_data_sort[i].name
         qty = tostring(math.floor(weapon_data_sort[i].qty))
 
-        screen.drawText(2, i*8 + 1, name)
+        --選択中なら背景の色を変える
+        if no == selectedWpnNo then
+            screen.setColor(64, 64, 0)
+            screen.drawRectF(0, i*8, 3*w/5 - 1, 7)
+            screen.drawRectF(3*w/5, i*8, 2*w/5, 7)
+            screen.setColor(255, 255, 255)
+        end
+
+        if w == 32 then
+            if #name > 3 then
+                screen.drawText(0, i*8 + 1, name)
+            else
+                screen.drawText(2, i*8 + 1, name)
+            end
+        else
+            screen.drawText(2, i*8 + 1, name)
+        end
         screen.drawText(4*w/5 - #qty*2.5 + 2, i*8 + 1, qty)
     end
 end

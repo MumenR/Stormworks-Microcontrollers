@@ -175,8 +175,8 @@ do
         --debug1 = debug1 + 1
         local exp, z, g, atm, ax, ay, az
         local sNew = {}
-        exp = math.exp(-K*h)
-        z = calTrajectoryXV(s[3], s[6], s[9], h/2, math.exp(-K*h/2))
+        exp = math.exp(-K*h/2)
+        z = calTrajectoryXV(s[3], s[6], s[9], h/2, exp*exp)
         g, atm = calGrav(z), calAtm(z)
         ax = s[7] - windVx*atm*WIND_INFLUENCE/60
         ay = s[8] - windVy*atm*WIND_INFLUENCE/60
@@ -380,8 +380,8 @@ do
 
     --砲弾方向基準をY方向とした座標系に変換
     function world2BallisticLocal(Wx, Wy, Wz, Azimuth)
-        local BLxy = distance2(Wx, Wy)
-        return BLxy*math.sin(math.atan(Wx, Wy) - Azimuth), BLxy*math.cos(math.atan(Wx, Wy) - Azimuth), Wz
+        local BLxy, theta = distance2(Wx, Wy), math.atan(Wx, Wy) - Azimuth
+        return BLxy*math.sin(theta), BLxy*math.cos(theta), Wz
     end
 end
 
@@ -574,6 +574,7 @@ function onTick()
 
                     fb, h, s = brentsFunc(60)
                     TGT = {predictTRD1(60, table.unpack(TGT0))}
+                    tick = 60
                     
                     --目標y座標の通過判定
                     isArrived = fb > 0 and not highAngleEnable
@@ -581,12 +582,13 @@ function onTick()
                     --目標を通過したら正確な位置とステップ幅を再計算
                     if isArrived then
                         h = brentsMethod(0, 60, -TGT0[2], fb, brentsFunc, 10, 0.01)
+                        tick = h
                         _, h, s = brentsFunc(h)
                     end
 
                     s[8] = 0
                     s[9] = 0
-                    tick, sLast = h, s
+                    sLast = {table.unpack(s)}
                     TGTLast = {table.unpack(TGT)}
                 end
 

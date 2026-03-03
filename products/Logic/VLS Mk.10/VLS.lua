@@ -166,7 +166,7 @@ function onTick()
     --時間経過処理とタイムアウト削除 MTX_data
     for ID, data in pairs(MTX_data) do
         data.t = data.t + 1
-        if (data.t > time_out_tick and ID ~= -1) or (data.t > time_out_tick_ELI and ID == -1) then
+        if (data.t > time_out_tick and ID > -1) or (data.t > time_out_tick_ELI and ID == -1) or (data.t > GUIDANCE_T and ID == -2) then
             MTX_data[ID] = nil
         end
     end
@@ -200,24 +200,29 @@ function onTick()
         local ID = INN(i*7)
         if ID ~= 0 then
             --初回登録
-            if MTX_data[ID] == nil or (ID == -1 and is_ELI_fire) then
-                MTX_data[ID] = {
-                    ID = ID,
-                    mode = mode
-                }
+            if MTX_data[ID] == nil or (ID <= -1 and is_ELI_fire) then
+                if MTX_data[ID] == nil then
+                    MTX_data[ID] = {
+                        ID = ID,
+                        t = 0
+                    }
+                end
+                MTX_data[ID].mode = mode
                 if is_loaded and my_model_no == WPN_No and firing_order == 1 and not is_launch then
                     launch_ID = ID
                     is_launch = true
                     launch_tick = 0
                 end
             end
-            MTX_data[ID].x = INN(7*i - 6)
-            MTX_data[ID].y = INN(7*i - 5)
-            MTX_data[ID].z = INN(7*i - 4)
-            MTX_data[ID].vx = INN(7*i - 3)
-            MTX_data[ID].vy = INN(7*i - 2)
-            MTX_data[ID].vz = INN(7*i - 1)
-            MTX_data[ID].t = 0
+            if ID ~= -2 or (ID == -2 and launch_tick == 0) then
+                MTX_data[ID].x = INN(7*i - 6)
+                MTX_data[ID].y = INN(7*i - 5)
+                MTX_data[ID].z = INN(7*i - 4)
+                MTX_data[ID].vx = INN(7*i - 3)
+                MTX_data[ID].vy = INN(7*i - 2)
+                MTX_data[ID].vz = INN(7*i - 1)
+                MTX_data[ID].t = 0
+            end
         end
     end
 

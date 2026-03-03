@@ -35,8 +35,12 @@ do
         simulator:setInputNumber(7, simulator:getSlider(7)*100)
         simulator:setInputNumber(8, simulator:getSlider(8)*10)
 
-        simulator:setInputBool(1, simulator:getIsToggled(1))
-        simulator:setInputBool(2, simulator:getIsClicked(2))
+        --simulator:setInputBool(1, simulator:getIsToggled(1))
+        --simulator:setInputBool(2, simulator:getIsClicked(2))
+
+        for i = 1, 10 do
+            simulator:setInputBool(i + 2, simulator:getIsToggled(i))
+        end
         
     end;
 end
@@ -68,6 +72,9 @@ PRB = property.getBool
 PRT = property.getText
 
 t = 0
+sos = 0
+SOS_on = false
+touchPulse = false
 
 function clamp(x, min, max)
     if x >= max then
@@ -98,11 +105,12 @@ function format_distance(x, unitL, unitL_txt, unitS, unitS_txt)
 
     --桁フォーマット
     x = x*unit
-    if x < 1 then
+    xSize = math.abs(x)
+    if xSize < 1 then
         x_txt = string.format("%.3f", x)..unit_txt
-    elseif x < 10 then
+    elseif xSize < 10 then
         x_txt = string.format("%.2f", x)..unit_txt
-    elseif x < 100 then
+    elseif xSize < 100 then
         x_txt = string.format("%.1f", x)..unit_txt
     else
         x_txt = string.format("%.0f", x)..unit_txt
@@ -143,7 +151,7 @@ end
 --x, yの基準は左上
 function drawDial(value, unitTxt, min, max, x, y, w, h)
     --テキスト化
-    if value > 10 then
+    if math.abs(value) > 10 then
         valueTxt = string.format("%.0f", value)
     else
         valueTxt = string.format("%.1f", value)
@@ -208,35 +216,82 @@ end
 
 function onTick()
 
-    unit_L = PRN("Distance units (Large)")
-    unit_L_txt = PRT("Units text (Large)")
-    unit_S = PRN("Distance units (Small)")
-    unit_S_txt = PRT("Units text (Small)")
+    do
+        unit_L = PRN("Distance units (Large)")
+        unit_L_txt = PRT("Units text (Large)")
+        unit_S = PRN("Distance units (Small)")
+        unit_S_txt = PRT("Units text (Small)")
 
-    ENGL_rpm = INN(1)
-    ENGR_rpm = INN(2)
-    ENGL_tmp = INN(3)
-    ENGR_tmp = INN(4)
-    fuel = INN(5)/1000              --x1000L
-    fuel_time = INN(6)*60           --min to sec
-    fuel_dist = INN(7)*1000*unit_L  --km to m to nm
-    fuel_econ = INN(8)*unit_S       --ft/L
-    fuelDelta = INN(21)             --L/s
-    geneENGRPML = INN(9)
-    geneENGRPMR = INN(10)
-    geneENGTMPL = INN(11)
-    geneENGTMPR = INN(12)
-    batteryL = INN(13)
-    batteryR = INN(14)
-    shaftRPML = INN(15)*60
-    shaftRPMR = INN(16)*60
-    generationL = INN(17)
-    generationR = INN(18)
-    geneRPML = INN(19)*60
-    geneRPMR = INN(20)*60
+        ENGL_rpm = INN(1)
+        ENGR_rpm = INN(2)
+        ENGL_tmp = INN(3)
+        ENGR_tmp = INN(4)
+        fuel = INN(5)                   --L
+        fuel_time = INN(6)              --min
+        fuel_dist = INN(7)*1000*unit_L  --km to m to nm
+        fuel_econ = INN(8)*unit_S       --ft/L
+        fuelDelta = INN(21)             --L/s
+        geneENGRPML = INN(9)
+        geneENGRPMR = INN(10)
+        geneENGTMPL = INN(11)
+        geneENGTMPR = INN(12)
+        batteryL = INN(13)
+        batteryR = INN(14)
+        shaftRPML = INN(15)*60
+        shaftRPMR = INN(16)*60
+        generationL = INN(17)
+        generationR = INN(18)
+        geneRPML = INN(19)*60
+        geneRPMR = INN(20)*60
 
-    SOS_on = INB(1)
-    SOS_pulse = INB(2)
+        SOS_pulse = INB(2)
+
+        bowDrain = INB(3)
+        frontAmoDrain = INB(4)
+        LfrontDrain = INB(5)
+        RfrontDrain = INB(6)
+        mainDrain = INB(7)
+        LRearDrain = INB(8)
+        RRearDrain = INB(9)
+        rearAmoDrain = INB(10)
+        sternDrain = INB(11)
+        mainBackDrain = INB(12)
+
+        Ftouch = INB(13) and INB(17)
+        Ltouch = INB(14) and INB(18)
+        Rtouch = INB(15) and INB(19)
+        Btouch = INB(16) and INB(20)
+
+        Fx, Fy = INN(22), INN(23)
+        Lx, Ly = INN(24), INN(25)
+        Rx, Ry = INN(26), INN(27)
+        Bx, By = INN(28), INN(29)
+    end
+
+    --タッチ情報選択
+    if Ftouch then
+        touchX, touchY = Fx, Fy
+        touch = Ftouch
+    elseif Ltouch then
+        touchX, touchY = Lx, Ly
+        touch = Ltouch
+    elseif Rtouch then
+        touchX, touchY = Rx, Ry
+        touch = Rtouch
+    elseif Btouch then
+        touchX, touchY = Bx, By
+        touch = Btouch
+    else
+        touchX, touchY = -1, -1
+        touch = false
+    end
+
+    --ボタンのタッチ判定
+    --ボタン位置とサイズ: x, y, w, h = 138, 138, 20, 10
+    if touch and not touchPulse and touchX >= 138 and touchX <= 158 and touchY >= 138 and touchY <= 148 then
+        SOS_on = not SOS_on
+    end
+    touchPulse = touch
 
     --sos計算
     if SOS_on then
@@ -256,146 +311,197 @@ function onTick()
     else
         sos_txt = "--"
     end
+
+    OUB(1, SOS_on)
 end
 
 function onDraw()
     w = screen.getWidth()
     h = screen.getHeight()
 
-    screen.setColor(1, 1, 1)
-    for i = 32, h, 32 do
-        screen.drawLine(0, i, w, i)
-    end
-    for i = 32, w, 32 do
-        screen.drawLine(i, 0, i, h)
-    end
-
-
     --ライン
-    screen.setColor(0, 0, 64)
-    screen.drawLine(0, h/2, 129, h/2)
-    screen.drawLine(64, 0, 64, h)
-    screen.drawLine(65, 40, 65 + 64, 40)
-    screen.drawLine(129, 0, 129, h)
-    screen.drawLine(195, 0, 195, h)
-    screen.drawLine(129, 128, 195, 128)
-
+    do
+        screen.setColor(0, 0, 64)
+        screen.drawLine(0, h/2, 129, h/2)
+        screen.drawLine(64, 0, 64, h)
+        screen.drawLine(65, 40, 65 + 64, 40)
+        screen.drawLine(129, 0, 129, h)
+        screen.drawLine(195, 0, 195, h)
+        screen.drawLine(129, 128, 195, 128)
+    end
     x, y = 0, 1
 
     --メインエンジン
-    white()
-    screen.drawText(x + 32 - #"ENG"*2.5, y, "ENG")
-    y = y + 5
-    drawDial(ENGL_rpm, "L-RPM", 0, 1000, x, y, 32, 32)
-    drawDial(ENGR_rpm, "R-RPM", 0, 1000, x + 32, y, 32, 32)
+    do
+        white()
+        screen.drawText(x + 32 - #"ENG"*2.5, y, "ENG")
+        y = y + 5
+        drawDial(ENGL_rpm, "L-RPM", 0, 1000, x, y, 32, 32)
+        drawDial(ENGR_rpm, "R-RPM", 0, 1000, x + 32, y, 32, 32)
+        y = y + 32 + 10
 
-    y = y + 32 + 10
-
-    drawDial(ENGL_tmp, "L-TMP", 0, 120, x, y, 32, 32)
-    drawDial(ENGR_tmp, "R-TMP", 0, 120, x + 32, y, 32, 32)
+        drawDial(ENGL_tmp, "L-TMP", 0, 120, x, y, 32, 32)
+        drawDial(ENGR_tmp, "R-TMP", 0, 120, x + 32, y, 32, 32)
+    end
 
     --発電機
-    y = h/2 + 2
-    white()
-    screen.drawText(x + 32 - #"GENE ENG"*2.5, y, "GENE ENG")
-    y = y + 5
-    drawDial(geneENGRPML, "L-RPM", 0, 1000, x, y, 32, 32)
-    drawDial(geneENGRPMR, "R-RPM", 0, 1000, x + 32, y, 32, 32)
+    do
+        y = h/2 + 2
+        white()
+        screen.drawText(x + 32 - #"GENE ENG"*2.5, y, "GENE ENG")
+        y = y + 5
+        drawDial(geneENGRPML, "L-RPM", 0, 1000, x, y, 32, 32)
+        drawDial(geneENGRPMR, "R-RPM", 0, 1000, x + 32, y, 32, 32)
 
-    y = y + 32 + 9
+        y = y + 32 + 9
 
-    drawDial(geneENGTMPL, "L-TMP", 0, 120, x, y, 32, 32)
-    drawDial(geneENGTMPR, "R-TMP", 0, 120, x + 32, y, 32, 32)
-
+        drawDial(geneENGTMPL, "L-TMP", 0, 120, x, y, 32, 32)
+        drawDial(geneENGTMPR, "R-TMP", 0, 120, x + 32, y, 32, 32)
+    end
 
     --縦列終わり--
 
     x, y = x + 64 + 1, 1
 
     --シャフト
-    white()
-    screen.drawText(x + 32 - #"SHAFT"*2.5, y, "SHAFT")
-    y = y + 5
-    drawDial(shaftRPML, "L-RPM", -4000, 4000, x, y, 32, 32)
-    drawDial(shaftRPMR, "R-RPM", -4000, 4000, x + 32, y, 32, 32)
+    do
+        white()
+        screen.drawText(x + 32 - #"SHAFT"*2.5, y, "SHAFT")
+        y = y + 5
+        drawDial(shaftRPML, "L-RPM", -4000, 4000, x, y, 32, 32)
+        drawDial(shaftRPMR, "R-RPM", -4000, 4000, x + 32, y, 32, 32)
 
-    y = y + 32 + 5
+        y = y + 32 + 5
+    end
 
     --バッテリー
-    white()
-    screen.drawText(x + 32 - #"BATTERY"*2.5, y, "BATTERY")
-    y = y + 5
-    drawDial(batteryL, "L-RPM", 0, 100, x, y, 32, 32)
-    drawDial(batteryR, "R-RPM", 0, 100, x + 32, y, 32, 32)
+    do
+        white()
+        screen.drawText(x + 32 - #"BATTERY"*2.5, y, "BATTERY")
+        y = y + 5
+        drawDial(batteryL, "L-%", 0, 100, x, y, 32, 32)
+        drawDial(batteryR, "R-%", 0, 100, x + 32, y, 32, 32)
+    end
 
     --発電
-    y = h/2 + 2
-    white()
-    screen.drawText(x + 32 - #"GENERATOR"*2.5, y, "GENERATOR")
-    y = y + 5
-    drawDial(geneRPML, "L-RPM", 0, 10000, x, y, 32, 32)
-    drawDial(geneRPMR, "R-RPM", 0, 10000, x + 32, y, 32, 32)
+    do
+        y = h/2 + 2
+        white()
+        screen.drawText(x + 32 - #"GENERATOR"*2.5, y, "GENERATOR")
+        y = y + 5
+        drawDial(geneRPML, "L-RPM", 0, 10000, x, y, 32, 32)
+        drawDial(geneRPMR, "R-RPM", 0, 10000, x + 32, y, 32, 32)
 
-    y = y + 32 + 9
+        y = y + 32 + 9
 
-    drawDial(generationL, "L-STW", 0, 1000, x, y, 32, 32)
-    drawDial(generationR, "R-STW", 0, 1000, x + 32, y, 32, 32)
-
+        drawDial(generationL, "L-STW", 0, 1000, x, y, 32, 32)
+        drawDial(generationR, "R-STW", 0, 1000, x + 32, y, 32, 32)
+    end
 
     --縦列終わり--
 
     x, y =  x + 64 + 1, 1
 
     --燃料
-    white()
-    screen.drawText(x + 32 - #"FUEL"*2.5, y, "FUEL")
-    y = y + 5
-    drawDial(fuel, "L", 0, 250000, x, y, 64, 64)
+    do
+        white()
+        screen.drawText(x + 32 - #"FUEL"*2.5, y, "FUEL")
+        y = y + 5
+        drawDial(fuel, "L", 0, 100000, x, y, 64, 64)
 
-    y = y + 56
-    drawDial(fuelDelta, "L/s", 0, 100, x, y, 32, 32)
-    drawDial(fuel_econ, "ft/L", 0, 10, x + 32, y, 32, 32)
+        y = y + 56
+        drawDial(fuelDelta, "L/s", 0, 100, x, y, 32, 32)
+        drawDial(clamp(fuel_econ, 0, 10), "ft/L", 0, 10, x + 32, y, 32, 32)
 
-    y = y + 32
+        y = y + 32
 
-    drawDial(fuel_dist, "nm", 0, 150, x, y, 32, 32)
-    drawDial(fuel_time, "min", 0, 600, x + 32, y, 32, 32)
+        drawDial(clamp(fuel_dist, 0, 150), "nm", 0, 150, x, y, 32, 32)
+        drawDial(clamp(fuel_time, 0, 600), "min", 0, 600, x + 32, y, 32, 32)
 
-    y = y + 32 + 5
+        y = y + 32 + 5
+    end
 
     --SOS
-    white()
-    screen.drawText(x + 32 - #"SOS"*2.5, y, "SOS")
-    y = y + 7
-    screen.drawRect(x + 32 - 24, y, 20, 10)
-    screen.drawRect(x + 32 + 3, y, 20, 10)
-
-    if SOS_on then
-        screen.setColor(0, 255, 0)
-        screen.drawRectF(x + 32 - 23, y + 1, 19, 9)
-        screen.setColor(0, 0, 0)
-        screen.drawText(x + 16 - 3, y + 3, "ON")
-    else
-        screen.drawText(x + 16 - 4, y + 3, "OFF")
-    end
-
-    if SOS_pulse then
-        screen.setColor(0, 255, 0)
-        screen.drawRectF(x + 32 + 4, y + 1, 19, 9)
-        screen.setColor(0, 0, 0)
-        screen.drawText(x + 48 - 9, y + 3, "DTC")
-    else
+    do
         white()
-        screen.drawText(x + 48 - 9, y + 3, "DCT")
+        screen.drawText(x + 32 - #"SOS"*2.5, y, "SOS")
+        y = y + 7
+        screen.drawRect(x + 32 - 24, y, 20, 10)
+        screen.drawRect(x + 32 + 3, y, 20, 10)
+
+        if SOS_on then
+            screen.setColor(0, 255, 0)
+            screen.drawRectF(x + 32 - 23, y + 1, 19, 9)
+            screen.setColor(0, 0, 0)
+            screen.drawText(x + 16 - 3, y + 3, "ON")
+        else
+            screen.drawText(x + 16 - 4, y + 3, "OFF")
+        end
+
+        if SOS_pulse then
+            screen.setColor(0, 255, 0)
+            screen.drawRectF(x + 32 + 4, y + 1, 19, 9)
+            screen.setColor(0, 0, 0)
+            screen.drawText(x + 48 - 9, y + 3, "DTC")
+        else
+            white()
+            screen.drawText(x + 48 - 9, y + 3, "DCT")
+        end
+
+        y = y + 15
+        white()
+        screen.drawText(x - (#sos_txt + 2)*5 + 50, y, sos_txt.." "..unit_S_txt)
     end
-
-    y = y + 15
-    white()
-    screen.drawText(x - (#sos_txt + 2)*5 + 50, y, sos_txt.." "..unit_S_txt)
-
 
     --ダメコン
+    do  
+        screen.setColor(255, 0, 0)
+        if bowDrain then
+            screen.drawTriangleF(240, 10, 230, 35, 250, 35)
+        end
+        if frontAmoDrain then
+            screen.drawRectF(230, 35, 20, 20)
+        end
+        if LfrontDrain then
+            screen.drawTriangleF(230, 35, 220, 60, 230, 60)
+            screen.drawRectF(220, 60, 10, 35)
+        end
+        if RfrontDrain then
+            screen.drawTriangleF(250, 35, 260, 60, 250, 60)
+            screen.drawRectF(250, 60, 10, 35)
+        end
+        if mainDrain then
+            screen.drawRectF(230, 55, 20, 40)
+        end
+        if LRearDrain then
+            screen.drawRectF(220, 95, 10, 35)
+        end
+        if RRearDrain then
+            screen.drawRectF(250, 95, 10, 35)
+        end
+        if rearAmoDrain then
+            screen.drawRectF(230, 95, 20, 35)
+        end
+        if sternDrain then
+            screen.drawRectF(220, 130, 40, 20)
+        end
 
+
+        screen.setColor(255, 255, 255)
+        --外形線
+        screen.drawLine(240, 10, 220, 60)
+        screen.drawLine(220, 60, 220, 150)
+        screen.drawLine(220, 150, 260, 150)
+        screen.drawLine(260, 150, 260, 60)
+        screen.drawLine(260, 60, 240, 10)
+        --内壁線
+        screen.drawLine(230, 35, 250, 35)
+        screen.drawLine(230, 55, 250, 55)
+        screen.drawLine(220, 95, 260, 95)
+        screen.drawLine(220, 130, 260, 130)
+        screen.drawLine(230, 35, 230, 130)
+        screen.drawLine(250, 35, 250, 130)
+    end
 end
 
 

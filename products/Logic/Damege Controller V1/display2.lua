@@ -48,9 +48,10 @@ PRT = property.getText
 function onTick()
     fire = INB(1)
     draining = INB(2)
-    O2In = INB(3)
-    airIn = INB(4)
-    airOut = INB(5)
+    pumpDead = INB(3)
+    O2In = INB(30)
+    airIn = INB(31)
+    airOut = INB(32)
 end
 
 function onDraw()
@@ -58,7 +59,11 @@ function onDraw()
     if fire then
         screen.drawText(6, 1, "FIRE")
     end
-    if draining then
+    if pumpDead then
+        screen.setColor(255, 0, 0)
+        screen.drawText(6, 7, "PUMP")
+        screen.setColor(0, 255, 0)
+    elseif draining then
         screen.drawText(4, 7, "DRAIN")
     end
     if O2In then

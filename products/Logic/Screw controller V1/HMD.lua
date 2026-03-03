@@ -53,6 +53,7 @@ function onTick()
     R_reverse = INB(2)
     thltCntTurn = INB(3)
     bowThlt = INB(4)
+    stopMode = INB(5)
 end
 
 function onDraw()
@@ -119,6 +120,13 @@ function onDraw()
         screen.setColor(0, 255, 0)
         screen.drawRect(x2 + x1 + 1, zero + 2, 17, 8)
         screen.drawText(x2 + x1 + 3, zero + 4, "BOW")
+    end
+
+    --停止モード
+    if stopMode then
+        screen.setColor(0, 255, 0)
+        screen.drawRect(x2 + x1 + 22, zero - 10, 22, 8)
+        screen.drawText(x2 + x1 + 24, zero - 8, "STOP")
     end
 end
 

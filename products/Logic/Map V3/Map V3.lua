@@ -255,6 +255,7 @@ function clock(x)
 end
 
 function onTick()
+    AP_finish = false
     local w, h
     w = INN(1)
     h = INN(2)
@@ -420,6 +421,9 @@ function onTick()
 
         if WP_time < WP_arrival then
             table.remove(WP, 2)
+            if #WP == 1 then
+                AP_finish = true
+            end
         else
             break
         end
@@ -462,6 +466,7 @@ function onTick()
 
     OUB(1, WP_detected)
     OUB(2, AP)
+    OUB(3, AP_finish)
 
     OUN(1, WPx)
     OUN(2, WPy)
