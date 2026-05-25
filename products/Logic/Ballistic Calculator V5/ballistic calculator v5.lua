@@ -189,31 +189,31 @@ do
         return h, sNew
     end
 
-    --割線法更新(f: 関数, x0, f0, x1, f1:初期のxとf(x), times: 更新回数, error: 許容誤差)
-    function secantMethod(f, x0, f0, x1, f1, times, error)
-        local f, x = f1, x1
-
+    --割線法更新(func:関数, x, f, xLast, fLast:初期のxとf(x), times: 更新回数, MAX_ERROR: 許容誤差)
+    function secantMethod(func, x, f, xLast, fLast, times, MAX_ERROR)
+        fLastAbs = math.abs(fLast)
         for i = 1, times do
-            if math.abs(f) < error then
+            diff = f - fLast
+            fAbs = math.abs(f)
+
+            if fAbs < MAX_ERROR then
                 return x
             end
 
-            if math.abs(f) > math.abs(fLast)*1.1 then --誤差が増加したら更新量を半分に
+            --次のxを決定
+            if fAbs > fLastAbs*1.1 then --誤差が増加したら更新量を半分に
                 xNew = (xLast + x)/2
-            elseif (math.abs(det) < MAX_ERROR*0.1 or x == xLast) and math.abs(f) > MAX_ERROR then
+            elseif (math.abs(diff) < MAX_ERROR*0.1 or x == xLast) and fAbs > MAX_ERROR then --更新量が小さすぎるときは更新量を増やす
                 xNew = x + 0.001
-            elseif math.abs(f) < MAX_ERROR then
-                xNew = x
-            else
-                xNew = x - f*(x - xLast)/det
+            else                        --#通常の割線法
+                xNew = x - f*(x - xLast)/diff
             end
 
+            --更新
+            fLast, xLast, fLastAbs = f, x, fAbs
+            f, x = func(xNew), xNew
         end
         return x
-
-        local det = f - fLast
-
-        return xNew
     end
 
     --風速をワールド風速に変換
