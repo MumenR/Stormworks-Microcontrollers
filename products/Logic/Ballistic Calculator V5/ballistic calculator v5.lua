@@ -94,11 +94,12 @@ STABI_DELAY_ROBO = 0.28
 P = 8
 I = 0
 D = 20
-ALT_INTERVAL = 500                          --数値積分の高度間隔[m]
+ALT_INTERVAL = 2000                         --数値積分の高度間隔[m]
+MIN_INTERVAL = 30
 MAX_INTERVAL = math.sqrt(240*ALT_INTERVAL)  --数値積分の最大ステップ幅[tick]
-MAX_ITERATION_I = 8                        --イテレーション最大回数
+MAX_ITERATION_I = 8                         --イテレーション最大回数
 ELEVATION_MAX_ERROR = 0.1                   --仰角割線法許容誤差[m]
-AZIMUTH_MAX_ERROR = 0.001                   --方位角割線法許容誤差[rad]
+AZIMUTH_MAX_ERROR = 0.1                     --方位角(弧の長さ)割線法許容誤差[m]
 
 INFTY = 10000
 PIVOT_MAX_ERROR = 2 --degree
@@ -163,63 +164,83 @@ do
         return h >= 40000 and 0 or (((44.33 - h/1000)/11.89)^5.256)/1013
     end
 
-    --減衰あり等加速度直線運動で時間から位置と速度を求める
-    --V0: 初速, a: 加速度, t: 時間, K:抵抗値
-    function calTrajectoryXV(x0, V0, a, t, exp)
-        return ((V0 - a/K)*(1 - exp) + a*t)/K + x0, (V0 - a/K)*exp + a/K
-    end
+    --割線ブレント法更新(func:関数, b, fb, a, fa:初期のxとf(x), times: 更新回数, MAX_ERROR: 許容誤差)
+    function secantBrentsMethod(func, b, fb, a, fa, times, MAX_ERROR)
+        local fbAbs, c, fc, fcAbs, e, d, alpha, beta, p, q, r, brentsMode
+        faAbs = fa > 0 and fa or -fa
+        c, fc, fcAbs = a, fa, faAbs
+        e = b - a
+        d = e
+        
+        brentsMode = false
 
-    --オイラー法で数値積分(h: ステップ幅, s: {x, y, z, vx, vy, vz, ax, ay, az})
-    --return h, s
-    function eulerTrajectory(h, s)
-        --debug1 = debug1 + 1
-        local exp, z, g, atm, ax, ay, az
-        local sNew = {}
-        exp = math.exp(-K*h/2)
-        z = calTrajectoryXV(s[3], s[6], s[9], h/2, exp)
-        g, atm = calGrav(z), calAtm(z)
-        ax = s[7] - windVx*atm*WIND_INFLUENCE/60
-        ay = s[8] - windVy*atm*WIND_INFLUENCE/60
-        az = s[9] - g
-        sNew[1], sNew[4] = calTrajectoryXV(s[1], s[4], ax, h, exp*exp)
-        sNew[2], sNew[5] = calTrajectoryXV(s[2], s[5], ay, h, exp*exp)
-        sNew[3], sNew[6] = calTrajectoryXV(s[3], s[6], az, h, exp*exp)
-        sNew[7], sNew[8], sNew[9] = s[7], s[8], s[9]
-        h = clamp(ALT_INTERVAL/math.abs(sNew[6]), 30, MAX_INTERVAL)
-        return h, sNew
-    end
-
-    --割線法更新(func:関数, x, f, xLast, fLast:初期のxとf(x), times: 更新回数, MAX_ERROR: 許容誤差)
-    function secantMethod(func, x, f, xLast, fLast, times, MAX_ERROR)
-        fLastAbs = math.abs(fLast)
-        --xとxLast入れ替え
-        if math.abs(f) > fLastAbs then
-            x, xLast = xLast, x
-            f, fLast = fLast, f
-        end
         for i = 1, times do
-            diff = f - fLast
-            fAbs = math.abs(f)
+            fbAbs = fb > 0 and fb or -fb
 
-            if fAbs < MAX_ERROR then
-                return x, fAbs, i
+            if fb*fa < 0 then brentsMode = true end     --fとfLastが符号を跨いでいたらブレント法を有効化
+
+            if fbAbs < MAX_ERROR then
+                return b, fbAbs, i
             end
 
-            --次のxを決定
-            if fAbs > fLastAbs*1.1 then --誤差が増加したら更新量を半分に
-                xNew = (xLast + x)/2
-            elseif (math.abs(diff) < MAX_ERROR*0.1 or x == xLast) and fAbs > MAX_ERROR then --更新量が小さすぎるときは更新量を増やす
-                xNew = x + 0.001
-            else                        --#通常の割線法
-                xNew = x - f*(x - xLast)/diff
+            if fa*fb > 0 then                           --a, bが同符号の場合入れ替え
+                a, fa, faAbs = c, fc, fcAbs
+                d = b - c
+                e = d
+            end
+            if faAbs < fbAbs then                       --bの時が解に近くなるようにbとaを入れ替え
+                a, b, c = b, c, b
+                fa, fb, fc = fb, fc, fb
+                faAbs, fbAbs, fcAbs = fbAbs, fcAbs, fbAbs
             end
 
-            --更新
-            fLast, xLast, fLastAbs = f, x, fAbs
-            x = xNew
-            f = func(xNew)
+            if brentsMode then
+                alpha = (a - b)/2
+                beta = fb/fc
+
+                if fcAbs < fbAbs then                   --二分法
+                    d, e = alpha, alpha
+                else
+                    if a == c then                      --線形補間
+                        p = 2*alpha*beta
+                        q = 1 - beta
+                    else                                --逆二次補完
+                        q = fc/fa
+                        r = fb/fa
+                        p = beta*(2*alpha*q*(q - r) - (b - c)*(r - 1))
+                        q = (q - 1)*(r - 1)*(beta - 1)
+                    end
+
+                    beta, e = e, d
+                    aq3 = 3*alpha*q
+
+                    if 2*(p > 0 and p or -p) < (aq3 > 0 and aq3 or -aq3) then
+                        d = -p/q
+                    else                                --二分法
+                        d, e = alpha, alpha
+                    end
+                end
+
+                b, c = b + d, b
+                fc = fb
+            else
+                diff = fb - fa
+                --次のxを決定
+                if fbAbs > faAbs*1.1 then --誤差が増加したら更新量を半分に
+                    xNew = (a + b)/2
+                elseif ((diff > 0 and diff or -diff) < MAX_ERROR*0.1 or b == a) and fbAbs > MAX_ERROR then   --更新量が小さすぎるときは更新量を増やす
+                    xNew = b + 0.001
+                else                        --#通常の割線法
+                    xNew = b - fb*(b - a)/diff
+                end
+
+                --更新
+                fa, a, faAbs = fb, b, fbAbs
+                b = xNew
+            end
+            fb = func(b)
         end
-        return x, fAbs, times
+        return b, fbAbs, times
     end
 
     --風速をワールド風速に変換
@@ -253,9 +274,9 @@ do
         return x
     end
 
-    --未来位置予測(return: x, y, z, vx, vy, vz, ax, ay, az)
+    --未来位置予測(return: x, y, z, vx, vy, vz)
     function predictTRD1(t, x, y, z, vx, vy, vz, ax, ay, az)
-        return ax*t*t/2 + vx*t + x, ay*t*t/2 + vy*t + y, az*t*t/2 + vz*t + z, ax*t + vx, ay*t + vy, az*t + vz, ax, ay, az
+        return ax*t*t/2 + vx*t + x, ay*t*t/2 + vy*t + y, az*t*t/2 + vz*t + z, ax*t + vx, ay*t + vy, az*t + vz
     end
 
     pitchErrorPre = 0
@@ -346,6 +367,138 @@ do
         local BLxy, theta = distance2(Wx, Wy), math.atan(Wx, Wy) - Azimuth
         return BLxy*math.sin(theta), BLxy*math.cos(theta), Wz
     end
+
+    --tickからtick + tまで数値積分し、tickによる誤差を返す
+    function secantEuler(t)
+        local exp, z2, atmCoef, t2, t3
+        --標的未来位置を計算
+        t2 = tick + t
+        t3 = t2*t2/2
+        TGTx = TGT0ax*t3 + TGT0vx*t2 + TGT0x
+        TGTy = TGT0ay*t3 + TGT0vy*t2 + TGT0y
+        TGTz = TGT0az*t3 + TGT0vz*t2 + TGT0z
+
+        --数値積分
+        exp = math.exp(-K*t)
+        z2 = (vzLast - azLast/K)*(K*t - 1 + exp)/K/K/t + azLast*t/2/K + zLast   --平均高度
+        atmCoef = WIND_INFLUENCE*(((44.33 - z2/1000)/11.89)^5.256)/60780        --風影響係数
+        axLast, ayLast, azLast = axLast - windVx*atmCoef, ayLast - windVy*atmCoef, azLast - math.exp(-z2/60000)/120
+        --更新(減衰あり等加速度直線運動)
+        x, vx = ((vxLast - axLast/K)*(1 - exp) + axLast*t)/K + xLast, (vxLast - axLast/K)*exp + axLast/K
+        y, vy = ((vyLast - ayLast/K)*(1 - exp) + ayLast*t)/K + yLast, (vyLast - ayLast/K)*exp + ayLast/K
+        z, vz = ((vzLast - azLast/K)*(1 - exp) + azLast*t)/K + zLast, (vzLast - azLast/K)*exp + azLast/K
+        --ステップ幅にclamp
+        hNew = ALT_INTERVAL/(vz < 0 and -vz or vz)
+        hNew = hNew > MAX_INTERVAL and MAX_INTERVAL or hNew
+        hNew = hNew < MIN_INTERVAL and MIN_INTERVAL or hNew
+
+        f = highAngleEnable and (TGTz - z) or (y - TGTy)        --着弾誤差
+        isArrived = f > 0 and (not highAngleEnable or vz < 0)   --着弾判定
+        return f, isArrived
+    end
+
+    --仰角時指定時の誤差を返す
+    function secantElevation(El)
+
+        --ターゲット座標(砲弾方向基準ローカル座標系)
+        TGT0x, TGT0y, TGT0z = world2BallisticLocal(TWLx, TWLy, TWLz, Azim)
+        TGT0vx, TGT0vy, TGT0vz = world2BallisticLocal(Tvx, Tvy, Tvz, Azim)
+        TGT0ax, TGT0ay, TGT0az = world2BallisticLocal(Tax, Tay, Taz, Azim)
+
+        --砲弾方向に風とビークル速度を成分分解
+        windVx = windWv*math.sin(windWdirec - Azim)
+        windVy = windWv*math.cos(windWdirec - Azim)
+
+        --数値積分初期値
+        g, atm = calGrav(TurPy), calAtm(TurPy)
+        x, y, z = MUZ_OFFSET_X, MUZ_OFFSET_YZ*math.cos(MUZ_OFFSET_YZ_ANGLE + El), MUZ_OFFSET_YZ*math.sin(MUZ_OFFSET_YZ_ANGLE + El)
+        --ビークル速度を加算した砲弾初速
+        vx, vy, vz = Wvxy*math.sin(WvxyDirec - Azim), V0*math.cos(El) + Wvxy*math.cos(WvxyDirec - Azim), V0*math.sin(El) + Wvz
+        ax, ay, az = 0, 0, 0
+
+        local h = 60    --数値積分のステップ幅
+        tick = 0        --発射からの経過時間
+        xLast, yLast, zLast, vxLast, vyLast, vzLast, axLast, ayLast, azLast = x, y, z, vx, vy, vz, ax, ay, az
+        fLast = -INFTY
+        isArrived = false
+
+        --ロケットの加速
+        if isRocket then
+            ay = ROCKET_ACL*math.cos(El)
+            az = ROCKET_ACL*math.sin(El)
+
+            f, isArrived = secantEuler(h)
+
+            --目標を通過したら正確な位置とステップ幅を再計算(活線法)
+            if isArrived then
+                tick, _, nIter = secantBrentsMethod(secantEuler, h, f, 0, -TGT0y, 10, 0.01)
+
+                --OUN(20, nIter)  --デバッグ用
+            end
+
+            h = hNew
+            tick = tick + h
+            ay, az = 0, 0   --加速終了
+            xLast, yLast, zLast, vxLast, vyLast, vzLast, axLast, ayLast, azLast = x, y, z, vx, vy, vz, ax, ay, az
+        end
+
+        --デバッグ用
+        nIter = 0
+
+        --数値積分
+        for k = 1, 20 do
+            --更新
+            f, isArrived = secantEuler(h)
+
+            --目標を通過したら正確な位置とステップ幅を再計算(活線法)
+            if isArrived then
+                h, _, nIter = secantBrentsMethod(secantEuler, h, f, 0, fLast, 10, 0.01)
+
+                --OUN(20, nIter)  --デバッグ用
+            end
+
+            tick = tick + h
+            h = hNew
+            xLast, yLast, zLast, vxLast, vyLast, vzLast, axLast, ayLast, azLast = x, y, z, vx, vy, vz, ax, ay, az
+
+            --終了条件
+            if isArrived or tick > tickDel then
+                --OUN(19, k)
+                break
+            end
+        end
+
+        --[[
+        OUN(23, x - TGTx)
+        OUN(24, y - TGTy)
+        OUN(25, z - TGTz)
+        ]]
+
+        return highAngleEnable and (TGTy - y) or (TGTz - z)   --仰角誤差
+    end
+
+    --方位角指定時の誤差を返す
+    function secantAzimuth(Az)
+        Azim = Az
+        --仰角更新(割線法)
+        do
+            local ElevationMin, ElevationMax = highAngleEnable and highAngleBorder or -pi2/4, highAngleEnable and (pi2/2 - highAngleBorder) or highAngleBorder
+
+            fElevation = secantElevation(Elevation)
+
+            --初期更新はちょとだけ
+            newElevation = Elevation + 0.001
+            newfElevation = secantElevation(newElevation)
+
+            Elevation, ElevationError, nIter = secantBrentsMethod(secantElevation, newElevation, newfElevation, Elevation, fElevation, MAX_ITERATION_I, ELEVATION_MAX_ERROR)
+            Elevation = clamp(Elevation, ElevationMin, ElevationMax)
+
+            --OUN(21, nIter)  --デバッグ用
+        end
+
+        return distance2(TGTx, TGTy)*(math.atan(TGTx, TGTy) - math.atan(x, y))  --方位角誤差(弧の長さ)
+    end
+
 end
 
 function onTick()
@@ -469,167 +622,30 @@ function onTick()
                 highAngleBorder = math.acos(K*goalY/math.sqrt(A*A + V0Border*V0Border)) + math.atan(A, V0Border)
 
                 --仰角からgolaYの時のzを求める(風なし)
-                function secantFunc(b)
+                function secantEuler(b)
                     return goalY*(V0Border*math.sin(b) + g/K)/V0Border/math.cos(b) + g*math.log(1 - K*goalY/V0Border/math.cos(b))/(K*K) - goalZ
                 end
 
                 --仰角仮定
                 if not highAngleEnable then
                     --直射解
-                    Elevation = secantMethod(secantFunc, math.atan(goalZ, goalY), secantFunc(math.atan(goalZ, goalY)), highAngleBorder, secantFunc(highAngleBorder), 10, (0.1/360)*pi2)
+                    Elevation = secantBrentsMethod(secantEuler, math.atan(goalZ, goalY), secantEuler(math.atan(goalZ, goalY)), highAngleBorder, secantEuler(highAngleBorder), 10, (0.1/360)*pi2)
                 else
                     --曲射解
-                    Elevation = secantMethod(secantFunc, (highAngleBorder + pi2/4)/2, secantFunc((highAngleBorder + pi2/4)/2), highAngleBorder, secantFunc(highAngleBorder), 10, (0.1/360)*pi2)
+                    Elevation = secantBrentsMethod(secantEuler, math.acos(K*goalY/V0Border) - 0.001, secantEuler(math.acos(K*goalY/V0Border) - 0.001), highAngleBorder, secantEuler(highAngleBorder), 10, (0.1/360)*pi2)
                 end
             end
         end
 
-        --メインイテレーション
-        function secantAzimuth(Az)          --方位角更新関数
-        
-            function secantElevation(El)    --仰角更新関数
-            
-                --ターゲット座標(砲弾方向基準ローカル座標系)
-                TGTx, TGTy, TGTz = world2BallisticLocal(TWLx, TWLy, TWLz, Az)
-                TGTvx, TGTvy, TGTvz = world2BallisticLocal(Tvx, Tvy, Tvz, Az)
-                TGTax, TGTay, TGTaz = world2BallisticLocal(Tax, Tay, Taz, Az)
-                TGT0 = {TGTx, TGTy, TGTz, TGTvx, TGTvy, TGTvz, TGTax, TGTay, TGTaz}
-                TGT = {table.unpack(TGT0)}
-                TGTLast = {table.unpack(TGT0)}
-
-                --砲弾方向に風とビークル速度を成分分解
-                windVx = windWv*math.sin(windWdirec - Az)
-                windVy = windWv*math.cos(windWdirec - Az)
-
-                --ビークル速度を加算した砲弾初速を計算
-                v0X = Wvxy*math.sin(WvxyDirec - Az)
-                v0Y = V0*math.cos(El) + Wvxy*math.cos(WvxyDirec - Az)
-                v0Z = V0*math.sin(El) + Wvz
-
-                --数値積分初期値
-                g, atm = calGrav(TurPy), calAtm(TurPy)
-                s = {MUZ_OFFSET_X, MUZ_OFFSET_YZ*math.cos(MUZ_OFFSET_YZ_ANGLE + El), MUZ_OFFSET_YZ*math.sin(MUZ_OFFSET_YZ_ANGLE + El), v0X, v0Y, v0Z, 0, 0, 0}
-
-                --ロケット
-                rocketAy = ROCKET_ACL*math.cos(El)
-                rocketAz = ROCKET_ACL*math.sin(El)
-
-                local h, sLast = 60, s
-                tick = 0    --発射からの経過時間
-
-                isArrived = false
-
-                --ロケットの加速
-                if isRocket then
-                    s[8] = rocketAy
-                    s[9] = rocketAz
-                    local function secantFunc(b)
-                        TGT = {predictTRD1(b, table.unpack(TGT0))}
-                        local fh, fs = eulerTrajectory(b, sLast)
-                        return fs[2] - TGT[2], fh, fs
-                    end
-
-                    fb, h, s = secantFunc(60)
-                    TGT = {predictTRD1(60, table.unpack(TGT0))}
-                    tick = 60
-                    
-                    --目標y座標の通過判定
-                    isArrived = fb > 0 and not highAngleEnable
-
-                    --目標を通過したら正確な位置とステップ幅を再計算(活線法)
-                    if isArrived then
-                        h, _, nIter = secantMethod(secantFunc, 60, fb, 0, -TGT0[2], 10, 0.01)
-                        tick = h
-                        _, h, s = secantFunc(h)
-
-                        OUN(20, nIter)  --デバッグ用
-                    end
-
-                    s[8] = 0
-                    s[9] = 0
-                    sLast = {table.unpack(s)}
-                    TGTLast = {table.unpack(TGT)}
-                end
-
-                --デバッグ用
-                nIter = 0
-
-                --数値積分
-                for k = 1, 40 do
-                    --終了条件
-                    if isArrived or tick > tickDel then
-                        break
-                    end
-
-                    --更新
-                    TGT = {predictTRD1(tick + h, table.unpack(TGT0))}
-                    hNew, s = eulerTrajectory(h, s)
-
-                    function secantFunc(b)
-                        TGT = {predictTRD1(tick + b, table.unpack(TGT0))}
-                        _, s = eulerTrajectory(b, sLast)
-                        return highAngleEnable and (s[3] - TGT[3]) or (s[2] - TGT[2])
-                    end
-
-                    --目標を通過したら正確な位置とステップ幅を再計算(活線法)
-                    if highAngleEnable and s[3] < TGT[3] and s[6] < 0 then   --曲射
-
-                        h, _, nIter = secantMethod(secantFunc, h, s[3] - TGT[3], 0, sLast[3] - TGTLast[3], 10, 0.01)
-                        _, s = eulerTrajectory(h, sLast)
-
-                        OUN(20, nIter)  --デバッグ用
-
-                        isArrived = true
-                    elseif not highAngleEnable and s[2] > TGT[2] then        --直射
-
-                        h, _, nIter = secantMethod(secantFunc, h, s[2] - TGT[2], 0, sLast[2] - TGTLast[2], 10, 0.01)
-                        _, s = eulerTrajectory(h, sLast)
-                        
-                        OUN(20, nIter)  --デバッグ用
-
-                        isArrived = true
-                    end
-
-                    tick = tick + h
-                    h = hNew
-                    sLast = {table.unpack(s)}
-                    TGTLast = {table.unpack(TGT)}
-                end
-
-                OUN(23, s[1] - TGT[1])
-                OUN(24, s[2] - TGT[2])
-                OUN(25, s[3] - TGT[3])
-
-                return highAngleEnable and (TGT[2] - s[2]) or (TGT[3] - s[3])   --仰角誤差
-            end
-
-            --仰角更新(割線法)
-            do
-                local ElevationMin, ElevationMax = highAngleEnable and highAngleBorder or -pi2/4, highAngleEnable and (pi2/2 - highAngleBorder) or highAngleBorder
-
-                fElevation = secantElevation(Elevation)
-
-                --初期更新はちょとだけ
-                newElevation = Elevation + 0.001
-                newfElevation = secantElevation(newElevation)
-
-                Elevation, ElevationError, nIter = secantMethod(secantElevation, newElevation, newfElevation, Elevation, fElevation, MAX_ITERATION_I, ELEVATION_MAX_ERROR)
-                Elevation = clamp(Elevation, ElevationMin, ElevationMax)
-
-                OUN(21, nIter)  --デバッグ用
-            end
-
-            return math.atan(TGT[1], TGT[2]) - math.atan(s[1], s[2])    --方位角誤差
-        end
-
+        --メインイテレーション実行
         --方位角更新(割線法)
         do  
             fAzimuth = secantAzimuth(Azimuth)
-            newAzimuth = Azimuth + math.atan(TGT[1], TGT[2]) - math.atan(s[1], s[2])
+            newAzimuth = Azimuth + math.atan(TGTx, TGTy) - math.atan(x, y)
 
-            Azimuth, AzimuthError, nIter = secantMethod(secantAzimuth, newAzimuth, secantAzimuth(newAzimuth), Azimuth, fAzimuth, MAX_ITERATION_I, AZIMUTH_MAX_ERROR)
+            Azimuth, AzimuthError, nIter = secantBrentsMethod(secantAzimuth, newAzimuth, secantAzimuth(newAzimuth), Azimuth, fAzimuth, MAX_ITERATION_I, AZIMUTH_MAX_ERROR)
 
-            OUN(22, nIter)  --デバッグ用
+            --OUN(22, nIter)  --デバッグ用
         end
 
         --射程内判定
