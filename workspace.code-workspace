@@ -37,12 +37,12 @@
 			"path": "products/Logic/Camera Controller V1"
 		},
 		{
-			"name": "Camera Controller V2",
-			"path": "products/Logic/Camera Controller V2"
-		},
-		{
 			"name": "Caterpillar Controller V1",
 			"path": "products/Logic/Caterpillar Controller V1"
+		},
+		{
+			"name": "Camera Controller V2",
+			"path": "products/Logic/Camera Controller V2"
 		},
 		{
 			"name": "CIWS Type 0",
