@@ -53,6 +53,10 @@
 			"path": "products/Logic/Configurable HUD v3.3"
 		},
 		{
+			"name": "CSV Sender v1.0.0",
+			"path": "products/Logic/CSV Sender v1.0.0"
+		},
+		{
 			"name": "Damege Controller V1",
 			"path": "products/Logic/Damege Controller V1"
 		},
