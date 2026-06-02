@@ -26,3 +26,7 @@ function world2Local(Wx,Wy,Wz,Px,Py,Pz,ex,ey,ez)
     local qx, qy, qz, qw = table.unpack(quatFromEuler(ex,ey,ez))
     return rotateVec({-qx, -qy, -qz, qw},Wx - Px,Wy - Pz,Wz - Py)
 end
+
+function onTick()
+    
+end
