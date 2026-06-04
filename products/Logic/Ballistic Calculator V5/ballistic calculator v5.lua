@@ -94,6 +94,9 @@ STABI_DELAY_ROBO = 0.28
 STABI_P = 8
 STABI_I = 0
 STABI_D = 15
+ERROR_P = 1
+ERROR_I = 0.1
+ERROR_D = 1
 ALT_INTERVAL = 2000                         --数値積分の高度間隔[m]
 MIN_INTERVAL = 60*(ALT_INTERVAL/1000)       --数値積分の最小ステップ幅[tick]
 MAX_INTERVAL = math.sqrt(240*ALT_INTERVAL)  --数値積分の最大ステップ幅[tick]
@@ -113,7 +116,7 @@ parameter = {
     {1000, 0.01, 300, 0.13},    --Rotary Auto
     {1000, 0.02, 150, 0.135},   --Light Auto
     {800, 0.025, 120, 0.15},    --Machine Gun
-    {50, 0.003, 3600, 0.125}    --Rocket Launcher
+    {50, 0.003, 3600, 0.125},   --Rocket Launcher
 }
 
 --関数群
@@ -270,16 +273,16 @@ do
         return ax*t*t/2 + vx*t + x, ay*t*t/2 + vy*t + y, az*t*t/2 + vz*t + z, ax*t + vx, ay*t + vy, az*t + vz
     end
 
-    pitchErrorPre = 0
-    pitchErrorSum = 0
-    yawErrorPre = 0
-    yawErrorSum = 0
+    stabiPitchEP, stabiPitchES = 0, 0
+    stabiYawEP, stabiYawES = 0, 0
+    pitchES, pitchEP = 0, 0
+    yawES, yawEP = 0, 0
 
     --PID制御
     function PID(P, I, D, target, current, errorSumPre, errorPre, min, max)
         local error, errorSum, errorDiff, control
         error = target - current
-        errorSum = errorSumPre + error
+        errorSum = clamp(errorSumPre + error, -1, 1)
         errorDiff = error - errorPre
         control = P*error + I*errorSum + D*errorDiff
 
@@ -310,29 +313,29 @@ do
     end
 
     --(return: futurePitch, futureYaw)
-    --Prv[rad/tick]
-    function stabilizer(Px, Py, Pz, Ex, Ey, Ez, Pvx, Pvy, Pvz, Prvx, Prvy, Prvz, Tx, Ty, Tz, Tvx, Tvy, Tvz, t)
-        local TLx, TLy, TLz, TLvx, TLvy, TLvz, Lrvx, Lrvy, Lrvz, losRvx, losRvy, losRvz, Vrx, Vry, Vrz, T2, absRv, cos, sin, dot, losFutureX, losFutureY, losFutureZ
+    --Prv[rad/tick], Tは視線角速度観測用のターゲット位置と速度, losは向くべき方向
+    function stabilizer(Px, Py, Pz, Ex, Ey, Ez, Pvx, Pvy, Pvz, Prvx, Prvy, Prvz, Tx, Ty, Tz, Tvx, Tvy, Tvz, losWx, losWy, losWz, DELAY)
+        local TLx, TLy, TLz, TLvx, TLvy, TLvz, Lrvx, Lrvy, Lrvz, losRvx, losRvy, losRvz, Vrx, Vry, Vrz, T2, absRv, cos, sin, dot, losFutureX, losFutureY, losFutureZ, losLx, losLy, losLz
         --ローカル座標
         TLx, TLy, TLz = world2Local(Tx, Ty, Tz, Px, Py, Pz, Ex, Ey, Ez)
         TLvx, TLvy, TLvz = world2Local(Tvx, Tvy, Tvz, 0, 0, 0, Ex, Ey, Ez)
         Lrvx, Lrvy, Lrvz = world2Local(Prvx, Prvz, Prvy, 0, 0, 0, Ex, Ey, Ez)
+        losLx, losLy, losLz = world2Local(losWx, losWy, losWz, Px, Py, Pz, Ex, Ey, Ez)
         --相対速度
         Vrx, Vry, Vrz = TLvx - Pvx, TLvy - Pvz, TLvz - Pvy
-        --分母
-        T2 = TLx*TLx + TLy*TLy + TLz*TLz
         --視線角速度
-        losRvx = -(TLy*Vrz - TLz*Vry)/T2 - Lrvx
-        losRvy = -(TLz*Vrx - TLx*Vrz)/T2 - Lrvy
-        losRvz = -(TLx*Vry - TLy*Vrx)/T2 - Lrvz
+        T2 = TLx*TLx + TLy*TLy + TLz*TLz
+        losRvx = (TLy*Vrz - TLz*Vry)/T2 - (-Lrvx)
+        losRvy = (TLz*Vrx - TLx*Vrz)/T2 - (-Lrvy)
+        losRvz = (TLx*Vry - TLy*Vrx)/T2 - (-Lrvz)
         --t[tick]後の未来位置へ(ロドリゲスの公式)
         absRv = math.sqrt(losRvx*losRvx + losRvy*losRvy + losRvz*losRvz)
-        cos = math.cos(absRv*t)
-        sin = math.sin(absRv*t)/absRv
-        dot = (losRvx*TLx + losRvy*TLy + losRvz*TLz)*(1 - cos)/absRv/absRv
-        losFutureX = cos*TLx + sin*(losRvy*TLz - losRvz*TLy) + dot*losRvx
-        losFutureY = cos*TLy + sin*(losRvz*TLx - losRvx*TLz) + dot*losRvy
-        losFutureZ = cos*TLz + sin*(losRvx*TLy - losRvy*TLx) + dot*losRvz
+        cos = math.cos(absRv*DELAY)
+        sin = math.sin(absRv*DELAY)/absRv
+        dot = (losRvx*losLx + losRvy*losLy + losRvz*losLz)*(1 - cos)/absRv/absRv
+        losFutureX = cos*losLx + sin*(losRvy*losLz - losRvz*losLy) + dot*losRvx
+        losFutureY = cos*losLy + sin*(losRvz*losLx - losRvx*losLz) + dot*losRvy
+        losFutureZ = cos*losLz + sin*(losRvx*losLy - losRvy*losLx) + dot*losRvz
         return rect2Polar(losFutureX, losFutureY, losFutureZ, false)
     end
 
@@ -493,9 +496,6 @@ do
 end
 
 function onTick()
-    STABI_P, STABI_I, STABI_D = INN(30), INN(31), INN(32)
-    STABI_DELAY_VELO = INN(29)  
-
     --インプット
     do
         Tx = INN(1)
@@ -530,6 +530,7 @@ function onTick()
 
         DEGREE = " (degree)"
         WPN_TYPE = PRN("Weapon Type") + 1
+        STANDBY_PITCH = PRN("standby pitch position"..DEGREE)/360
         STANDBY_YAW = PRN("standby yaw position"..DEGREE)/360
         MIN_PITCH = PRN("min pitch"..DEGREE)/360
         MAX_PITCH = PRN("max pitch"..DEGREE)/360
@@ -540,7 +541,10 @@ function onTick()
         MAX_SPEED_GAIN = PRN("Pivot rotation speed gain")
         PITCH_PIVOT = PRN("Pitch gear ratio (1 : ?)")/PRN("Types of Pitch PIVOT")   --gear/pivot
         YAW_PIVOT = PRN("Yaw gear ratio (1 : ?)")/PRN("Types of Yaw PIVOT")
-        stabiEnable = PRB("Stabilizer")
+        stabiEnable = PRB("Pivot Control")
+        MANUAL_P = PRN("manual P")
+        MANUAL_I = PRN("manual I")
+        MANUAL_D = PRN("manual D")
         TEXT = "Turret phy. offset "
         PHY_OFFSET_X = PRN(TEXT.."x (m)")
         PHY_OFFSET_Y = PRN(TEXT.."y (m)")
@@ -560,21 +564,26 @@ function onTick()
 
     end
 
-    inRange = false
-    losRvx, losRvy, losRvz = 0, 0, 0
+    --初期値
+    do
+        inRange = false
+        tick = 0
+        idealPitch, idealYaw = STANDBY_PITCH, STANDBY_YAW
+        stabiPitch, stabiYaw = STANDBY_PITCH, STANDBY_YAW
+        Azimuth, Elevation = 0, 0
+    end
 
     --ピボットのヨーとピッチに変換
     do
         Wx, Wy, Wz = local2World(0, 1, 0, 0, 0, 0, TurEx, TurEy, TurEz)
         Lx, Ly, Lz = world2Local(Wx, Wy, Wz, 0, 0, 0, BodEx, BodEy, BodEz)
         currentPitch, currentYaw = rect2Polar(Lx, Ly, Lz, false)
-        currentYaw = currentYaw - STANDBY_YAW
     end
     --ワールド速度算出
     Wvx, Wvy, Wvz = local2World(BodPvx, BodPvz, BodPvy, 0, 0, 0, BodEx, BodEy, BodEz)
 
-    --補足時かつ起動時
-    if TRD1Exists and power then
+    --補足時かつ起動時に弾道計算機有効
+    if TRD1Exists and power and WPN_TYPE ~= 9 then
 
         V0, K, tickDel, WIND_INFLUENCE = parameter[WPN_TYPE][1]/60, parameter[WPN_TYPE][2], parameter[WPN_TYPE][3], parameter[WPN_TYPE][4]
         isRocket = WPN_TYPE == 8
@@ -650,84 +659,109 @@ function onTick()
 
         --射程内判定
         inRange = tick < tickDel and AzimuthError < AZIMUTH_MAX_ERROR and ElevationError < ELEVATION_MAX_ERROR
-    else
-        Azimuth, Elevation = 0, 0
-        rotation_speed_pitch, rotation_speed_yaw = 0, 0
-    end
 
-    --スタビライザー
-    if inRange then
-        --向くべき座標計算
-        stabiWx, stabiWy, stabiWz = TurPx + INFTY*math.cos(Elevation)*math.sin(Azimuth), TurPz + INFTY*math.cos(Elevation)*math.cos(Azimuth), TurPy + INFTY*math.sin(Elevation)
-        srabiLx, srabiLy, srabiLz = world2Local(stabiWx, stabiWy, stabiWz, TurPx, TurPy, TurPz, BodEx, BodEy, BodEz)
+        --向くべき方向を仮想的に３次元座標で算出
+        losWx, losWy, losWz = TurPx + INFTY*math.cos(Elevation)*math.sin(Azimuth), TurPz + INFTY*math.cos(Elevation)*math.cos(Azimuth), TurPy + INFTY*math.sin(Elevation)
+        Lx, Ly, Lz = world2Local(losWx, losWy, losWz, TurPx, TurPy, TurPz, BodEx, BodEy, BodEz)
 
         --射撃可能判定用の、本来向くべき向き
-        targetPitch, targetYaw = rect2Polar(srabiLx, srabiLy, srabiLz, false)
-        
-        --視線角速度計算
-        stabiPitch, stabiYaw = stabilizer(TurPx, TurPy, TurPz, BodEx, BodEy, BodEz, BodPvx, BodPvy, BodPvz, BodPrvx, BodPrvy, BodPrvz, Tx, Ty, Tz, Tvx, Tvy, Tvz, STABI_DELAY_VELO)
+        idealPitch, idealYaw = rect2Polar(Lx, Ly, Lz, false)
 
-        --向くべき未来位置計算(ロボティックピボット)
-        roboticPitch, roboticYaw = stabilizer(TurPx, TurPy, TurPz, BodEx, BodEy, BodEz, BodPvx, BodPvy, BodPvz, BodPrvx, BodPrvy, BodPrvz, Tx, Ty, Tz, Tvx, Tvy, Tvz, STABI_DELAY_ROBO)
-
-        if reloadEnable then
-            stabiPitch = 0
-            roboticPitch = 0
-        end
-    else
-        stabiPitch, stabiYaw = 0, 0
-        roboticPitch, roboticYaw = 0, 0
-        srabiLx, srabiLy, srabiLz = 0, 1, 0
-        targetPitch, targetYaw = 0, 0
-        tick = 0
+        --着弾点座標と、その時の標的速度
+        impx, impy, impz, impvx, impvy, impvz = predictTRD1(tick, Tx, Ty, Tz, Tvx, Tvy, Tvz, Tax, Tay, Taz)
     end
 
     --射撃可能判定
     do
         currentInFOV = same_rotation(currentYaw) > MIN_YAW and same_rotation(currentYaw) < MAX_YAW and currentPitch > MIN_PITCH and currentPitch < MAX_PITCH
-        targetInFOVPitch = math.sin(targetPitch) > math.sin(MIN_PITCH) and math.sin(targetPitch) < math.sin(MAX_PITCH)
-        targetInFOVYaw = targetYaw > MIN_YAW and targetYaw < MAX_YAW
-        pitchError = math.abs(same_rotation(targetPitch - currentPitch))*360
-        yawError = math.abs(same_rotation(targetYaw - STANDBY_YAW - currentYaw))*360
+        targetInFOVPitch = math.sin(idealPitch) > math.sin(MIN_PITCH) and math.sin(idealPitch) < math.sin(MAX_PITCH)
+        targetInFOVYaw = idealYaw > MIN_YAW and idealYaw < MAX_YAW
+        pitchError = math.abs(same_rotation(idealPitch - currentPitch))*360
+        yawError = math.abs(same_rotation(idealYaw - currentYaw))*360
         inError = pitchError < PIVOT_MAX_ERROR and yawError < PIVOT_MAX_ERROR
         shootable = inRange and inError and currentInFOV and targetInFOVPitch and targetInFOVYaw and not reloadEnable
     end
 
     --駆動系
     do
+        --射程外またはミサイルモードの場合、目標方向を直接向く
+        if not inRange and TRD1Exists then
+            stabiPitch, stabiYaw = stabilizer(TurPx, TurPy, TurPz, BodEx, BodEy, BodEz, BodPvx, BodPvy, BodPvz, BodPrvx, BodPrvy, BodPrvz, Tx, Ty, Tz, Tvx, Tvy, Tvz, Tx, Ty, Tz, STABI_DELAY_VELO)
+            roboticPitch, roboticYaw = stabiPitch, stabiYaw
+            idealPitch, idealYaw = stabiPitch, stabiYaw
+        end
+
+        --スタビライザー
+        if stabiEnable then
+            --向くべき座標計算
+            if inRange then
+                --向くべき未来位置計算(速度ピボット)
+                stabiPitch, stabiYaw = stabilizer(TurPx, TurPy, TurPz, BodEx, BodEy, BodEz, BodPvx, BodPvy, BodPvz, BodPrvx, BodPrvy, BodPrvz, impx, impy, impz, impvx, impvy, impvz, losWx, losWy, losWz, STABI_DELAY_VELO)
+
+                --向くべき未来位置計算(ロボティックピボット)
+                roboticPitch, roboticYaw = stabilizer(TurPx, TurPy, TurPz, BodEx, BodEy, BodEz, BodPvx, BodPvy, BodPvz, BodPrvx, BodPrvy, BodPrvz, impx, impy, impz, impvx, impvy, impvz, losWx, losWy, losWz, STABI_DELAY_ROBO)
+            end
+
+            if reloadEnable then
+                stabiPitch = STANDBY_PITCH
+                roboticPitch = STANDBY_PITCH
+            end
+
+            --差分へ
+            yawDiff = YAW_LIMIT_ENABLE and (stabiYaw - currentYaw) or same_rotation(stabiYaw - currentYaw)
+
+            --PID
+            stabiPitchV, stabiPitchES, stabiPitchEP = PID(STABI_P, STABI_I, STABI_D, stabiPitch, currentPitch, stabiPitchES, stabiPitchEP, -MAX_SPEED_GAIN, MAX_SPEED_GAIN)
+            stabiYawV, stabiYawES, stabiYawEP = PID(STABI_P, STABI_I, STABI_D, 0, -yawDiff, stabiYawES, stabiYawEP, -MAX_SPEED_GAIN, MAX_SPEED_GAIN)
+
+            --誤差修正用のPIDパラメータ
+            P, I, D = ERROR_P, ERROR_I, ERROR_D
+        else
+            P, I, D = MANUAL_P, MANUAL_I, MANUAL_D
+            stabiPitchV, stabiYawV = 0, 0
+            roboticPitch, roboticYaw = idealPitch, idealYaw
+        end
+
         --差分へ
-        pitchDiff = stabiPitch - currentPitch
-        yawDiff = YAW_LIMIT_ENABLE and (stabiYaw - currentYaw) or same_rotation(stabiYaw - currentYaw)
+        yawDiff = YAW_LIMIT_ENABLE and (idealYaw - currentYaw) or same_rotation(idealYaw - currentYaw)
 
         --PID
-        pitch, pitchErrorSum, pitchErrorPre = PID(STABI_P, STABI_I, STABI_D, 0, -pitchDiff*PITCH_PIVOT, pitchErrorSum, pitchErrorPre, -PITCH_PIVOT*MAX_SPEED_GAIN, PITCH_PIVOT*MAX_SPEED_GAIN)
-        yaw, yawErrorSum, yawErrorPre = PID(STABI_P, STABI_I, STABI_D, 0, -yawDiff*YAW_PIVOT, yawErrorSum, yawErrorPre, -YAW_PIVOT*MAX_SPEED_GAIN, YAW_PIVOT*MAX_SPEED_GAIN)
+        pitchV, pitchES, pitchEP = PID(P, I, D, idealPitch, currentPitch, pitchES, pitchEP, -MAX_SPEED_GAIN, MAX_SPEED_GAIN)
+        yawV, yawES, yawEP = PID(P, I, D, 0, -yawDiff, yawES, yawEP, -MAX_SPEED_GAIN, MAX_SPEED_GAIN)
+
+        pitchV = stabiPitchV + pitchV
+        yawV = stabiYawV + yawV
 
         --ピッチ角制限
         if PITCH_LIMIT_ENABLE then
-            pitch = limit_rotation(pitch, same_rotation(currentPitch), MIN_PITCH, MAX_PITCH)
+            pitchV = limit_rotation(pitchV, same_rotation(currentPitch), MIN_PITCH, MAX_PITCH)
         end
         --ヨー角制限
         if YAW_LIMIT_ENABLE then
-            yaw = limit_rotation(yaw, same_rotation(currentYaw), MIN_YAW, MAX_YAW)
+            yawV = limit_rotation(yawV, same_rotation(currentYaw), MIN_YAW, MAX_YAW)
         end
+
+        --ギア補正
+        pitchV = pitchV*PITCH_PIVOT
+        yawV = yawV*YAW_PIVOT
 
         --ロボティックピボットの場合
         if PITCH_PIVOT < 0 then
-            pitch = PITCH_LIMIT_ENABLE and clamp(roboticPitch, MIN_PITCH, MAX_PITCH)*4 or roboticPitch*4
+            pitchV = PITCH_LIMIT_ENABLE and clamp(roboticPitch, MIN_PITCH, MAX_PITCH)*4 or roboticPitch*4
         end
         if YAW_PIVOT < 0 then
-            yaw = YAW_LIMIT_ENABLE and clamp(roboticYaw, MIN_YAW, MAX_YAW)*4 or roboticYaw*4
+            yawV = YAW_LIMIT_ENABLE and clamp(roboticYaw, MIN_YAW, MAX_YAW)*4 or roboticYaw*4
         end
 
         --ゼロ除算対策
-        pitch = (pitch ~= pitch) and 0 or pitch
-        yaw = (yaw ~= yaw) and 0 or yaw
+        pitchV = (pitchV ~= pitchV) and 0 or pitchV
+        yawV = (yawV ~= yawV) and 0 or yawV
     end
 
-    OUN(1, pitch)
-    OUN(2, yaw)
+    OUN(1, pitchV)
+    OUN(2, yawV)
     OUB(1, shootable)
+    OUB(2, inRange)
 
     OUN(3, pitchError)
     OUN(4, yawError)
@@ -735,6 +769,11 @@ function onTick()
     OUN(30, tick)
     OUN(31, Elevation)
     OUN(32, Azimuth)
+
+    OUN(20, pitchES)
+    OUN(21, pitchEP)
+    OUN(22, yawES)
+    OUN(23, yawEP)
 end
 
 --[[
