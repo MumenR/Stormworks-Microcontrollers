@@ -15,8 +15,9 @@ do
     simulator = simulator
     simulator:setScreen(1, "3x3")
 
-    simulator:setProperty("Weapon Type", 7) -- 0: Bertha, 1: Artillery, 2: Battle, 3: Heavy Auto, 4: Rotary Auto, 5: Light Auto, 6: Machine Gun, 7: Rocket Launcher
+    simulator:setProperty("Weapon Type", 2) -- 1: Bertha, 2: Artillery, 3: Battle, 4: Heavy Auto, 5: Rotary Auto, 6: Light Auto, 7: Machine Gun, 8: Rocket Launcher
     simulator:setProperty("standby yaw position (degree)", 0)
+    simulator:setProperty("standby pitch position (degree)", 0)
     simulator:setProperty("min pitch (degree)", -15)
     simulator:setProperty("max pitch (degree)", 90)
     simulator:setProperty("Pitch Swivel Mode", false)
@@ -31,6 +32,13 @@ do
     simulator:setProperty("Turret phy. offset x (m)", 0)
     simulator:setProperty("Turret phy. offset y (m)", 0)
     simulator:setProperty("Turret phy. offset z (m)", 0)
+    simulator:setProperty("Muzzle offset x (m)", 0)
+    simulator:setProperty("Muzzle offset y (m)", 0)
+    simulator:setProperty("Muzzle offset z (m)", 0)
+    simulator:setProperty("Muzzle phy. offset x (m)", 0)
+    simulator:setProperty("Muzzle phy. offset y (m)", 0)
+    simulator:setProperty("Muzzle phy. offset z (m)", 0)
+    simulator:setProperty("Turret pivot control", true)
 
 
     -- Runs every tick just before onTick; allows you to simulate the inputs changing
@@ -90,18 +98,18 @@ ROCKET_ACL_TICK = 60
 tick = 0
 TRD1_DELAY = 0
 STABI_DELAY_VELO = 7.5
-STABI_DELAY_ROBO = 0.28
+STABI_DELAY_ROBO = 9.5
 STABI_P = 8
 STABI_I = 0
 STABI_D = 15
 ERROR_P = 1
-ERROR_I = 0.1
+ERROR_I = 0.05
 ERROR_D = 1
 ALT_INTERVAL = 2000                         --数値積分の高度間隔[m]
 MIN_INTERVAL = 60*(ALT_INTERVAL/1000)       --数値積分の最小ステップ幅[tick]
 MAX_INTERVAL = math.sqrt(240*ALT_INTERVAL)  --数値積分の最大ステップ幅[tick]
 MAX_EULER = math.floor(3600/MIN_INTERVAL)   --数値積分最大回数
-MAX_ITERATION_I = 8                         --イテレーション最大回数
+MAX_ITERATION_I = 8                        --イテレーション最大回数
 ELEVATION_MAX_ERROR = 0.1                   --仰角割線法許容誤差[m]
 AZIMUTH_MAX_ERROR = 0.1                     --方位角(弧の長さ)割線法許容誤差[m]
 
@@ -116,7 +124,7 @@ parameter = {
     {1000, 0.01, 300, 0.13},    --Rotary Auto
     {1000, 0.02, 150, 0.135},   --Light Auto
     {800, 0.025, 120, 0.15},    --Machine Gun
-    {50, 0.003, 3600, 0.125},   --Rocket Launcher
+    {50, 0.003, 3600, 0.125}    --Rocket Launcher
 }
 
 --関数群
@@ -282,7 +290,7 @@ do
     function PID(P, I, D, target, current, errorSumPre, errorPre, min, max)
         local error, errorSum, errorDiff, control
         error = target - current
-        errorSum = clamp(errorSumPre + error, -1, 1)
+        errorSum = math.abs(error) < 5/360 and errorSumPre + error or errorSumPre
         errorDiff = error - errorPre
         control = P*error + I*errorSum + D*errorDiff
 
@@ -370,7 +378,7 @@ do
         --数値積分
         exp = math.exp(-K*t)
         z2 = (vzLast - azLast/K)*(K*t - 1 + exp)/K/K/t + azLast*t/2/K + zLast + TurPy   --平均高度
-        --atmCoef = WIND_INFLUENCE*(((44.33 - z2/1000)/11.89)^5.256)/60780                --風影響係数
+        --atmCoef = WIND_INFLUENCE*(((44.33 - z2/1000)/11.89)^5.256)/60780              --風影響係数(調整前)
         atmCoef = WIND_INFLUENCE*(((44.20 - z2/1000)/11.89)^5.256)/60780                --風影響係数
         g = math.exp(-z2/60000)/120
         --加速度計算
@@ -529,7 +537,7 @@ function onTick()
         windLdirec = INN(26)
 
         DEGREE = " (degree)"
-        WPN_TYPE = PRN("Weapon Type") + 1
+        WPN_TYPE = PRN("Weapon Type")
         STANDBY_PITCH = PRN("standby pitch position"..DEGREE)/360
         STANDBY_YAW = PRN("standby yaw position"..DEGREE)/360
         MIN_PITCH = PRN("min pitch"..DEGREE)/360
@@ -570,6 +578,7 @@ function onTick()
         tick = 0
         idealPitch, idealYaw = STANDBY_PITCH, STANDBY_YAW
         stabiPitch, stabiYaw = STANDBY_PITCH, STANDBY_YAW
+        roboticPitch, roboticYaw = STANDBY_PITCH, STANDBY_YAW
         Azimuth, Elevation = 0, 0
     end
 
@@ -617,27 +626,23 @@ function onTick()
             goalX, goalY, goalZ = world2BallisticLocal(TWLx, TWLy, TWLz, Azimuth)
 
             --曲射解と直射解を解析式で求め、中間値を直射・曲射境界値に
-            do
-                local V0Border, A
+            --曲射/直射境界仰角条件(風なし)
+            V0Border = V0 + (isRocket and 600/60 or 0)  --ロケットの加速を初速に加算
+            A = -goalY*g/V0Border                       --文字数省略で置き換え
+            highAngleBorder = math.acos(K*goalY/math.sqrt(A*A + V0Border*V0Border)) + math.atan(A, V0Border)
 
-                --曲射/直射境界仰角条件(風なし)
-                V0Border = V0 + (isRocket and 600/60 or 0)  --ロケットの加速を初速に加算
-                A = -goalY*g/V0Border                       --文字数省略で置き換え
-                highAngleBorder = math.acos(K*goalY/math.sqrt(A*A + V0Border*V0Border)) + math.atan(A, V0Border)
+            --仰角からgolaYの時のzを求める(風なし)
+            function secantElevation0(b)
+                return goalY*(V0Border*math.sin(b) + g/K)/V0Border/math.cos(b) + g*math.log(1 - K*goalY/V0Border/math.cos(b))/(K*K) - goalZ
+            end
 
-                --仰角からgolaYの時のzを求める(風なし)
-                function secantElevation0(b)
-                    return goalY*(V0Border*math.sin(b) + g/K)/V0Border/math.cos(b) + g*math.log(1 - K*goalY/V0Border/math.cos(b))/(K*K) - goalZ
-                end
-
-                --仰角仮定
-                if not highAngleEnable then
-                    --直射解
-                    Elevation = secantBrentsMethod(secantElevation0, math.atan(goalZ, goalY), secantElevation0(math.atan(goalZ, goalY)), highAngleBorder, secantElevation0(highAngleBorder), 10, (0.1/360)*pi2)
-                else
-                    --曲射解
-                    Elevation = secantBrentsMethod(secantElevation0, math.acos(K*goalY/V0Border) - 0.001, secantElevation0(math.acos(K*goalY/V0Border) - 0.001), highAngleBorder, secantElevation0(highAngleBorder), 10, (0.1/360)*pi2)
-                end
+            --仰角仮定
+            if not highAngleEnable then
+                --直射解
+                Elevation = secantBrentsMethod(secantElevation0, math.atan(goalZ, goalY), secantElevation0(math.atan(goalZ, goalY)), highAngleBorder, secantElevation0(highAngleBorder), 10, (0.1/360)*pi2)
+            else
+                --曲射解
+                Elevation = secantBrentsMethod(secantElevation0, math.acos(K*goalY/V0Border) - 0.001, secantElevation0(math.acos(K*goalY/V0Border) - 0.001), highAngleBorder, secantElevation0(highAngleBorder), 10, (0.1/360)*pi2)
             end
         end
 
@@ -645,7 +650,8 @@ function onTick()
         --方位角更新(割線法)
         do  
             fAzimuth = secantAzimuth(Azimuth)
-            newAzimuth = Azimuth + math.atan(TGTx, TGTy) - math.atan(x, y)
+            diffGain = Elevation > pi2/4 and -2 or 2    --仰角限界突破している場合は逆方向に更新
+            newAzimuth = Azimuth + (math.atan(TGTx, TGTy) - math.atan(x, y))*diffGain
 
             Azimuth, AzimuthError, nIter = secantBrentsMethod(secantAzimuth, newAzimuth, secantAzimuth(newAzimuth), Azimuth, fAzimuth, MAX_ITERATION_I, AZIMUTH_MAX_ERROR)
 
@@ -671,6 +677,14 @@ function onTick()
         impx, impy, impz, impvx, impvy, impvz = predictTRD1(tick, Tx, Ty, Tz, Tvx, Tvy, Tvz, Tax, Tay, Taz)
     end
 
+    --射程外またはミサイルモードの場合、目標方向を直接向く
+    if not inRange and TRD1Exists and power then
+        stabiPitch, stabiYaw = stabilizer(TurPx, TurPy, TurPz, BodEx, BodEy, BodEz, BodPvx, BodPvy, BodPvz, BodPrvx, BodPrvy, BodPrvz, Tx, Ty, Tz, Tvx, Tvy, Tvz, Tx, Ty, Tz, STABI_DELAY_VELO)
+        roboticPitch, roboticYaw = stabilizer(TurPx, TurPy, TurPz, BodEx, BodEy, BodEz, BodPvx, BodPvy, BodPvz, BodPrvx, BodPrvy, BodPrvz, Tx, Ty, Tz, Tvx, Tvy, Tvz, Tx, Ty, Tz, STABI_DELAY_ROBO)
+        Lx, Ly, Lz = world2Local(Tx, Ty, Tz, TurPx, TurPy, TurPz, BodEx, BodEy, BodEz)
+        idealPitch, idealYaw = rect2Polar(Lx, Ly, Lz, false)
+    end
+
     --射撃可能判定
     do
         currentInFOV = same_rotation(currentYaw) > MIN_YAW and same_rotation(currentYaw) < MAX_YAW and currentPitch > MIN_PITCH and currentPitch < MAX_PITCH
@@ -684,13 +698,6 @@ function onTick()
 
     --駆動系
     do
-        --射程外またはミサイルモードの場合、目標方向を直接向く
-        if not inRange and TRD1Exists then
-            stabiPitch, stabiYaw = stabilizer(TurPx, TurPy, TurPz, BodEx, BodEy, BodEz, BodPvx, BodPvy, BodPvz, BodPrvx, BodPrvy, BodPrvz, Tx, Ty, Tz, Tvx, Tvy, Tvz, Tx, Ty, Tz, STABI_DELAY_VELO)
-            roboticPitch, roboticYaw = stabiPitch, stabiYaw
-            idealPitch, idealYaw = stabiPitch, stabiYaw
-        end
-
         --スタビライザー
         if stabiEnable then
             --向くべき座標計算
@@ -770,10 +777,12 @@ function onTick()
     OUN(31, Elevation)
     OUN(32, Azimuth)
 
+    --[[
     OUN(20, pitchES)
     OUN(21, pitchEP)
     OUN(22, yawES)
     OUN(23, yawEP)
+    ]]
 end
 
 --[[
@@ -785,9 +794,11 @@ function onDraw()
     w, h = screen.getWidth(), screen.getHeight()
     screen.setColor(0, 255, 0)
 
+    drawAzimuth = Elevation > pi2/4 and Azimuth + pi2/2 or Azimuth
+
     --砲塔の向き
     screen.drawCircle(w/2, h/2, 1)
-    screen.drawLine(w/2, h/2, w/2 + math.sin(Azimuth)*10, h/2 - math.cos(Azimuth)*10)
+    screen.drawLine(w/2, h/2, w/2 + math.sin(drawAzimuth)*10, h/2 - math.cos(drawAzimuth)*10)
 
     --ターゲット位置
     screen.setColor(255, 0, 0)

@@ -43,6 +43,11 @@ function world2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
     return L[1][1], L[1][2], L[1][3]
 end
 
+--未来位置予測(return: x, y, z, vx, vy, vz)
+function predictTRD1(t, x, y, z, vx, vy, vz, ax, ay, az)
+    return ax*t*t/2 + vx*t + x, ay*t*t/2 + vy*t + y, az*t*t/2 + vz*t + z, ax*t + vx, ay*t + vy, az*t + vz
+end
+
 function onTick()
     Px, Py, Pz = INN(1), INN(2), INN(3)
     Ex, Ey, Ez = INN(4), INN(5), INN(6)
@@ -50,6 +55,8 @@ function onTick()
 
     Wx, Wy, Wz = Px, Pz, Py
     Vx, Vy, Vz = local2World(Pvx, Pvz, Pvy, 0, 0, 0, Ex, Ey, Ez)
+
+    Wx, Wy, Wz = predictTRD1(3, Wx, Wy, Wz, Vx, Vy, Vz, 0, 0, 0)
 
     OUB(1, true)
 
