@@ -581,15 +581,17 @@ function onTick()
     for i = 1, 4 do
         if lock_on_list_sort[i] ~= nil then
             data_ID = lock_on_list_sort[i].ID
-            OUN(i*7 - 6, target_data[data_ID].predict.x.est)
-            OUN(i*7 - 5, target_data[data_ID].predict.y.est)
-            OUN(i*7 - 4, target_data[data_ID].predict.z.est)
-            OUN(i*7 - 3, target_data[data_ID].predict.x.a)
-            OUN(i*7 - 2, target_data[data_ID].predict.y.a)
-            OUN(i*7 - 1, target_data[data_ID].predict.z.a)
-            OUN(i*7 - 0, lock_on_list_sort[i].MTX_ID)
+            if target_data[data_ID] ~= nil and target_data[data_ID].predict ~= nil then
+                OUN(i*7 - 6, target_data[data_ID].predict.x.est)
+                OUN(i*7 - 5, target_data[data_ID].predict.y.est)
+                OUN(i*7 - 4, target_data[data_ID].predict.z.est)
+                OUN(i*7 - 3, target_data[data_ID].predict.x.a)
+                OUN(i*7 - 2, target_data[data_ID].predict.y.a)
+                OUN(i*7 - 1, target_data[data_ID].predict.z.a)
+                OUN(i*7 - 0, lock_on_list_sort[i].MTX_ID)
 
-            lock_on_list[lock_on_list_sort[i].index].t_out = 0
+                lock_on_list[lock_on_list_sort[i].index].t_out = 0
+            end
         end
     end
 
