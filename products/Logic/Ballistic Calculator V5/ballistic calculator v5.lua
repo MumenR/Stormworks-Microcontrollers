@@ -101,7 +101,7 @@ STABI_DELAY_VELO = 7.5
 STABI_DELAY_ROBO = 9.5
 STABI_P = 8
 STABI_I = 0
-STABI_D = 15
+--STABI_D = 15 (スタビモードUltimateのときに15, Nomalのときは0)
 ERROR_P = 1
 ERROR_I = 0.05
 ERROR_D = 1
@@ -109,7 +109,7 @@ ALT_INTERVAL = 2000                         --数値積分の高度間隔[m]
 MIN_INTERVAL = 60*(ALT_INTERVAL/1000)       --数値積分の最小ステップ幅[tick]
 MAX_INTERVAL = math.sqrt(240*ALT_INTERVAL)  --数値積分の最大ステップ幅[tick]
 MAX_EULER = math.floor(3600/MIN_INTERVAL)   --数値積分最大回数
-MAX_ITERATION_I = 8                        --イテレーション最大回数
+MAX_ITERATION_I = 8                         --イテレーション最大回数
 ELEVATION_MAX_ERROR = 0.1                   --仰角割線法許容誤差[m]
 AZIMUTH_MAX_ERROR = 0.1                     --方位角(弧の長さ)割線法許容誤差[m]
 
@@ -538,6 +538,8 @@ function onTick()
 
         DEGREE = " (degree)"
         WPN_TYPE = PRN("Weapon Type")
+        STABI_D = PRN("Stabilizer")
+        stabiEnable = STABI_D >= 0
         STANDBY_PITCH = PRN("standby pitch position"..DEGREE)/360
         STANDBY_YAW = PRN("standby yaw position"..DEGREE)/360
         MIN_PITCH = PRN("min pitch"..DEGREE)/360
@@ -549,14 +551,13 @@ function onTick()
         MAX_SPEED_GAIN = PRN("Pivot rotation speed gain")
         PITCH_PIVOT = PRN("Pitch gear ratio (1 : ?)")/PRN("Types of Pitch PIVOT")   --gear/pivot
         YAW_PIVOT = PRN("Yaw gear ratio (1 : ?)")/PRN("Types of Yaw PIVOT")
-        stabiEnable = PRB("Pivot Control")
         MANUAL_P = PRN("manual P")
         MANUAL_I = PRN("manual I")
         MANUAL_D = PRN("manual D")
         TEXT = "Turret phy. offset "
-        PHY_OFFSET_X = PRN(TEXT.."x (m)")
-        PHY_OFFSET_Y = PRN(TEXT.."y (m)")
-        PHY_OFFSET_Z = PRN(TEXT.."z (m)")
+        PHY_OFFSET_X = -PRN(TEXT.."x (m)")
+        PHY_OFFSET_Y = -PRN(TEXT.."y (m)")
+        PHY_OFFSET_Z = -PRN(TEXT.."z (m)")
         TEXT = "Muzzle offset "
         MUZ_OFFSET_X = PRN(TEXT.."x (m)")
         MUZ_OFFSET_Y = PRN(TEXT.."y (m)")
