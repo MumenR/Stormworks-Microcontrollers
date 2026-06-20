@@ -53,11 +53,14 @@ PRN = property.getNumber
 PRB = property.getBool
 pi2 = math.pi*2
 
-STABI_T = 7.5
-STABI_P = 8.2
-STABI_D = 15
-
+SEAT_STABI_T = 7.5
+SEAT_STABI_P = 8.2
+SEAT_STABI_D = 0
 SEAT_PIVOT = 32/5
+
+LASER_STABI_T = 4
+
+is1P = false
 
 --関数
 do
@@ -108,6 +111,19 @@ do
         else
             return pitch/pi2, yaw/pi2
         end
+    end
+
+    --極座標から直交座標へ変換(Z軸優先)
+    function polar2Rect(pitch, yaw, distance, radian_bool)
+        local x, y, z
+        if not radian_bool then
+            pitch = pitch*pi2
+            yaw = yaw*pi2
+        end
+        x = distance*math.cos(pitch)*math.sin(yaw)
+        y = distance*math.cos(pitch)*math.cos(yaw)
+        z = distance*math.sin(pitch)
+        return x, y, z
     end
 
     function clamp(x, min, max)
@@ -194,33 +210,87 @@ do
     end
 end
 
+pitchPrev, yawPrev = 0, 0
+
 function onTick()
+    LASER_STABI_T = INN(30)
+
     --インプット
     do
-        BodPx, BodPy, BodPz = INN(1), INN(2), INN(3)
-        BodEx, BodEy, BodEz = INN(4), INN(5), INN(6)
-        BodPvx, BodPvy, BodPvz = INN(7)/60, INN(8)/60, INN(9)/60
-        BodPrvx, BodPrvy, BodPrvz = INN(10)*pi2/60, INN(11)*pi2/60, INN(12)*pi2/60
+        lasPx, lasPy, lasPz = INN(1), INN(2), INN(3)
+        lasEx, lasEy, lasEz = INN(4), INN(5), INN(6)
+        lasPvx, lasPvy, lasPvz = INN(7)/60, INN(8)/60, INN(9)/60
+        lasPrvx, lasPrvy, lasPrvz = INN(10)*pi2/60, INN(11)*pi2/60, INN(12)*pi2/60
 
-        SeatEx, SeatEy, SeatEz = INN(13), INN(14), INN(15)
+        seatEx, seatEy, seatEz = INN(13), INN(14), INN(15)
+
+        bodEx, bodEy, bodEz = INN(16), INN(17), INN(18)
+        bodPrvx, bodPrvy, bodPrvz = INN(19)*pi2/60, INN(20)*pi2/60, INN(21)*pi2/60
+
+        seatLosYaw, seatLosPitch = INN(22)*pi2, INN(23)*pi2
+
+        vehicleCamMode = PRN("Vehicle Camera Mode")
+    end
+
+    --視線の基準となる真の姿勢
+    do
+
     end
 
     --ピボットのヨーに変換
     do
-        Wx, Wy, Wz = local2World(0, 1, 0, 0, 0, 0, SeatEx, SeatEy, SeatEz)
-        Lx, Ly, Lz = world2Local(Wx, Wy, Wz, 0, 0, 0, BodEx, BodEy, BodEz)
+        Wx, Wy, Wz = local2World(0, 1, 0, 0, 0, 0, seatEx, seatEy, seatEz)
+        Lx, Ly, Lz = world2Local(Wx, Wy, Wz, 0, 0, 0, bodEx, bodEy, bodEz)
         _, seatCntYaw = rect2Polar(Lx, Ly, Lz, false)
     end
 
     --シートピボット
     do
-        _, seatIdealYaw = stabilizer1(BodEx, BodEy, BodEz, BodPrvx, BodPrvy, BodPrvz, 0.25, STABI_T)
+        _, seatIdealYaw = stabilizer1(bodEx, bodEy, bodEz, bodPrvx, bodPrvy, bodPrvz, 0.25, SEAT_STABI_T)
 
-        seatYawControl, seatYawES, seatYawEP = PID(STABI_P, 0, STABI_D, 0, -same_rotation(seatIdealYaw - seatCntYaw), seatYawES, seatYawEP, -100, 100)
+        seatYawControl, seatYawES, seatYawEP = PID(SEAT_STABI_P, 0, SEAT_STABI_D, 0, -same_rotation(seatIdealYaw - seatCntYaw), seatYawES, seatYawEP, -100, 100)
         seatYawControl = seatYawControl*SEAT_PIVOT
         --nan対策
         seatYawControl = seatYawControl ~= seatYawControl and 0 or seatYawControl
     end
 
+    --レーザー方向
+    do
+        --ワールド視線方向
+        if is1P or vehicleCamMode == 2 then     --一人称または固定の時
+            --ローカル座標系
+            Lx, Ly, Lz = polar2Rect(seatLosPitch, seatLosYaw, 1000, true)
+            losWx, losWy, losWz = local2World(Lx, Ly, Lz, 0, 0, 0, seatEx, seatEy, seatEz)
+        else                                    --水平固定または自由
+            Wx, Wy, Wz = local2World(0, 1000, 0, 0, 0, 0, seatEx, seatEy, seatEz)
+            Wpi, Wya = rect2Polar(Wx, Wy, Wz, true)
+            losWx, losWy, losWz = polar2Rect(seatLosPitch + Wpi, seatLosYaw + Wya, 1000, true)
+        end
+
+        losWx, losWy, losWz = losWx + lasPx, losWy + lasPz, losWz + lasPy
+
+        OUN(21, losWx)
+        OUN(22, losWy)
+        OUN(23, losWz)
+        
+        --スタビライザー
+        pi, ya = stabilizer2(lasPx, lasPy, lasPz, lasEx, lasEy, lasEz, lasPvx, lasPvy, lasPvz, lasPrvx, lasPrvy, lasPrvz, losWx, losWy, losWz, 0, 0, 0, losWx, losWy, losWz, LASER_STABI_T)
+
+        las1pitch, las1yaw = pi, ya
+        las2pitch, las2yaw = pi, ya
+    end
+
     OUN(31, seatYawControl)
+
+    OUN(10, -las1yaw*8)
+    OUN(11, -las1pitch*8)
+    OUN(12, -las2yaw*8)
+    OUN(13, -las2pitch*8)
+
+    --一人称視点フラグ
+    is1P = false
+end
+
+function onDraw()
+    is1P = true
 end
