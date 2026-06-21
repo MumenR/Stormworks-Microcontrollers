@@ -64,41 +64,57 @@ is1P = false
 
 --関数
 do
-    --積(A*B)
-    function mul(A, B, C, sum)
-        C = {}
-        for i = 1, #A do
-            C[i] = {}
-            for j = 1, #B[1] do
-                sum = 0
-                for k = 1, #A[1] do
-                    sum = sum + A[i][k]*B[k][j]
-                end
-                C[i][j] = sum
-            end
-        end
-        return C
+
+    --オイラー角からクォータニオン変換
+    function euler2Qt(Ex, Ey, Ez)
+        return mulQt({0, math.sin(-Ez/2), 0, math.cos(-Ez/2)}, mulQt({0, 0, math.sin(-Ey/2), math.cos(-Ey/2)}, {math.sin(-Ex/2), 0, 0, math.cos(-Ex/2)}))
     end
 
-    function R(Ex, Ey, Ez)
-        local a, b, c, d, e, f = math.cos(Ex), math.sin(Ex), math.cos(Ey), math.sin(Ey), math.cos(Ez), math.sin(Ez)
+    --クォータニオンの掛け算(p: 姿勢, q:回転)
+    function mulQt(q, p)
+        local a, b, c, d = table.unpack(q)
+        local x, y, z, w = table.unpack(p)
         return {
-            {e*c,   e*d*a + f*b,    e*d*b - f*a},
-            {-d,    c*a,            c*b},
-            {f*c,   f*d*a - e*b,    f*d*b + e*a}
+            d*x - c*y + b*z + a*w,
+            c*x + d*y - a*z + b*w,
+            -b*x + a*y + d*z + c*w,
+            -a*x - b*y - c*z + d*w
         }
     end
 
-    --ローカル座標からワールド座標へ変換(Physics sensor使用)
-    function local2World(Lx, Ly, Lz, Px, Py, Pz, Ex, Ey, Ez)
-        local W = mul(R(Ex, Ey, Ez), {{Lx}, {Ly}, {Lz}})
-        return W[1][1] + Px, W[2][1] + Pz, W[3][1] + Py
+    --ローカル座標からワールド座標へ
+    function local2World(Lx, Ly, Lz, Px, Py, Pz, q)
+        x, y, z = table.unpack(mulQt(q, mulQt({Lx, Ly, Lz, 0}, {-q[1], -q[2], -q[3], q[4]})))
+        return x + Px, y + Pz, z + Py
     end
 
-    --ワールド座標からローカル座標へ変換(Physics sensor使用)
-    function world2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
-        local L = mul({{Wx - Px, Wy - Pz, Wz - Py}}, R(Ex, Ey, Ez))
-        return L[1][1], L[1][2], L[1][3]
+    --ワールド座標からローカル座標へ
+    function world2Local(Wx, Wy, Wz, Px, Py, Pz, q)
+        return table.unpack(mulQt({-q[1], -q[2], -q[3], q[4]}, mulQt({Wx - Px, Wy - Pz, Wz - Py, 0}, q)))
+    end
+
+    --姿勢の球面補間(q1からq2へtの割合)
+    function slerp(q1, q2, t)
+        local dot, theta, e, f
+        local a, b, c, d = table.unpack(q1)
+        local x, y, z, w = table.unpack(q2)
+        dot = a*x + b*y + c*z + d*w     --内積
+        if dot < 0 then                 --遠回り回転なら逆へ回転させる
+            dot, x, y, z, w = -dot, -x, -y, -z, -w
+        end
+        theta = math.acos(dot)          --必要回転角度
+        if theta > 0.0001 then          --０除算対策
+            e = math.sin((1 - t)*theta)/math.sin(theta)
+            f = math.sin(t*theta)/math.sin(theta)
+        else
+            e, f = (1 - t), t
+        end
+        x = e*a + f*x
+        y = e*b + f*y
+        z = e*c + f*z
+        w = e*d + f*w
+        e = math.sqrt(x*x + y*y + z*z + w*w)    --正規化
+        return {x/e, y/e, z/e, w/e}
     end
 
     --ローカル座標からローカル極座標へ変換(return pitch, yaw)
@@ -141,13 +157,13 @@ do
 
     --(return: futurePitch, futureYaw)
     --Prv[rad/tick], Tは視線角速度観測用のターゲット位置と速度, losは向くべき方向, 2軸スタビ
-    function stabilizer2(Px, Py, Pz, Ex, Ey, Ez, Pvx, Pvy, Pvz, Prvx, Prvy, Prvz, Tx, Ty, Tz, Tvx, Tvy, Tvz, losWx, losWy, losWz, DELAY)
+    function stabilizer2(Px, Py, Pz, Qt, Pvx, Pvy, Pvz, Prvx, Prvy, Prvz, Tx, Ty, Tz, Tvx, Tvy, Tvz, losWx, losWy, losWz, DELAY)
         local TLx, TLy, TLz, TLvx, TLvy, TLvz, Lrvx, Lrvy, Lrvz, losRvx, losRvy, losRvz, Vrx, Vry, Vrz, T2, absRv, cos, sin, dot, losFutureX, losFutureY, losFutureZ, losLx, losLy, losLz
         --ローカル座標
-        TLx, TLy, TLz = world2Local(Tx, Ty, Tz, Px, Py, Pz, Ex, Ey, Ez)
-        TLvx, TLvy, TLvz = world2Local(Tvx, Tvy, Tvz, 0, 0, 0, Ex, Ey, Ez)
-        Lrvx, Lrvy, Lrvz = world2Local(Prvx, Prvz, Prvy, 0, 0, 0, Ex, Ey, Ez)
-        losLx, losLy, losLz = world2Local(losWx, losWy, losWz, Px, Py, Pz, Ex, Ey, Ez)
+        TLx, TLy, TLz = world2Local(Tx, Ty, Tz, Px, Py, Pz, Qt)
+        TLvx, TLvy, TLvz = world2Local(Tvx, Tvy, Tvz, 0, 0, 0, Qt)
+        Lrvx, Lrvy, Lrvz = world2Local(Prvx, Prvz, Prvy, 0, 0, 0, Qt)
+        losLx, losLy, losLz = world2Local(losWx, losWy, losWz, Px, Py, Pz, Qt)
         --相対速度
         Vrx, Vry, Vrz = TLvx - Pvx, TLvy - Pvz, TLvz - Pvy
         --視線角速度
@@ -168,7 +184,7 @@ do
 
     --(return: futurePitch, futureYaw)
     --Prv[rad/tick], azimuth[回転]は向くべき方位, 1軸スタビ
-    function stabilizer1(Ex, Ey, Ez, Prvx, Prvy, Prvz, azimuth, DELAY)
+    function stabilizer1(Qt, Prvx, Prvy, Prvz, azimuth, DELAY)
         local losRvx, losRvy, losRvz, absRv, cos, sin, dot, futWx, futWy, futWz, Wx, Wy, ex, ey, ez, futLx, futLy, futLz
         --向くべき方位(３次元座標)
         Wx, Wy = math.sin(azimuth*pi2), math.cos(azimuth*pi2)
@@ -183,8 +199,8 @@ do
         futWy = cos*Wy + sin*losRvz*Wx + dot*losRvy
         futWz = sin*(losRvx*Wy - losRvy*Wx) + dot*losRvz
         --ローカル座標変換
-        ex, ey, ez = world2Local(0, 0, 1, 0, 0, 0, Ex, Ey, Ez)  --Z軸単位ベクトル
-        futLx, futLy, futLz = world2Local(futWx, futWy, futWz, 0, 0, 0, Ex, Ey, Ez)
+        ex, ey, ez = world2Local(0, 0, 1, 0, 0, 0, Qt)  --Z軸単位ベクトル
+        futLx, futLy, futLz = world2Local(futWx, futWy, futWz, 0, 0, 0, Qt)
         --逆投影(?)
         futLx = futLx - ex*futLz/ez
         futLy = futLy - ey*futLz/ez
@@ -211,20 +227,18 @@ do
 end
 
 pitchPrev, yawPrev = 0, 0
-
+seatLosQtPrev = {0, 0, 0, 1}
 function onTick()
-    LASER_STABI_T = INN(30)
-
     --インプット
     do
         lasPx, lasPy, lasPz = INN(1), INN(2), INN(3)
-        lasEx, lasEy, lasEz = INN(4), INN(5), INN(6)
+        lasQt = euler2Qt(INN(4), INN(5), INN(6))
         lasPvx, lasPvy, lasPvz = INN(7)/60, INN(8)/60, INN(9)/60
         lasPrvx, lasPrvy, lasPrvz = INN(10)*pi2/60, INN(11)*pi2/60, INN(12)*pi2/60
 
-        seatEx, seatEy, seatEz = INN(13), INN(14), INN(15)
+        seatQt = euler2Qt(INN(13), INN(14), INN(15))
 
-        bodEx, bodEy, bodEz = INN(16), INN(17), INN(18)
+        bodQt = euler2Qt(INN(16), INN(17), INN(18))
         bodPrvx, bodPrvy, bodPrvz = INN(19)*pi2/60, INN(20)*pi2/60, INN(21)*pi2/60
 
         seatLosYaw, seatLosPitch = INN(22)*pi2, INN(23)*pi2
@@ -234,19 +248,20 @@ function onTick()
 
     --視線の基準となる真の姿勢
     do
-
+        seatLosQt = slerp(seatLosQtPrev, seatQt, 0.05)
+        seatLosQtPrev = {table.unpack(seatLosQt)}
     end
 
     --ピボットのヨーに変換
     do
-        Wx, Wy, Wz = local2World(0, 1, 0, 0, 0, 0, seatEx, seatEy, seatEz)
-        Lx, Ly, Lz = world2Local(Wx, Wy, Wz, 0, 0, 0, bodEx, bodEy, bodEz)
+        Wx, Wy, Wz = local2World(0, 1, 0, 0, 0, 0, seatQt)
+        Lx, Ly, Lz = world2Local(Wx, Wy, Wz, 0, 0, 0, bodQt)
         _, seatCntYaw = rect2Polar(Lx, Ly, Lz, false)
     end
 
     --シートピボット
     do
-        _, seatIdealYaw = stabilizer1(bodEx, bodEy, bodEz, bodPrvx, bodPrvy, bodPrvz, 0.25, SEAT_STABI_T)
+        _, seatIdealYaw = stabilizer1(bodQt, bodPrvx, bodPrvy, bodPrvz, 0.25, SEAT_STABI_T)
 
         seatYawControl, seatYawES, seatYawEP = PID(SEAT_STABI_P, 0, SEAT_STABI_D, 0, -same_rotation(seatIdealYaw - seatCntYaw), seatYawES, seatYawEP, -100, 100)
         seatYawControl = seatYawControl*SEAT_PIVOT
@@ -260,9 +275,9 @@ function onTick()
         if is1P or vehicleCamMode == 2 then     --一人称または固定の時
             --ローカル座標系
             Lx, Ly, Lz = polar2Rect(seatLosPitch, seatLosYaw, 1000, true)
-            losWx, losWy, losWz = local2World(Lx, Ly, Lz, 0, 0, 0, seatEx, seatEy, seatEz)
+            losWx, losWy, losWz = local2World(Lx, Ly, Lz, 0, 0, 0, seatQt)
         else                                    --水平固定または自由
-            Wx, Wy, Wz = local2World(0, 1000, 0, 0, 0, 0, seatEx, seatEy, seatEz)
+            Wx, Wy, Wz = local2World(0, 1000, 0, 0, 0, 0, seatLosQt)
             Wpi, Wya = rect2Polar(Wx, Wy, Wz, true)
             losWx, losWy, losWz = polar2Rect(seatLosPitch + Wpi, seatLosYaw + Wya, 1000, true)
         end
@@ -274,7 +289,7 @@ function onTick()
         OUN(23, losWz)
         
         --スタビライザー
-        pi, ya = stabilizer2(lasPx, lasPy, lasPz, lasEx, lasEy, lasEz, lasPvx, lasPvy, lasPvz, lasPrvx, lasPrvy, lasPrvz, losWx, losWy, losWz, 0, 0, 0, losWx, losWy, losWz, LASER_STABI_T)
+        pi, ya = stabilizer2(lasPx, lasPy, lasPz, lasQt, lasPvx, lasPvy, lasPvz, lasPrvx, lasPrvy, lasPrvz, losWx, losWy, losWz, 0, 0, 0, losWx, losWy, losWz, LASER_STABI_T)
 
         las1pitch, las1yaw = pi, ya
         las2pitch, las2yaw = pi, ya
