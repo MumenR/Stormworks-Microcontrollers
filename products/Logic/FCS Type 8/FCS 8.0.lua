@@ -59,6 +59,7 @@ SEAT_STABI_D = 0
 SEAT_PIVOT = 32/5
 
 LASER_STABI_T = 4
+LASER_DELAY = 5
 
 is1P = false
 
@@ -151,6 +152,10 @@ do
         return x
     end
 
+    function distance3(x, y, z)
+        return math.sqrt(x*x + y*y + z*z)
+    end
+
     function same_rotation(x)
         return (x + 0.5)%1 - 0.5
     end
@@ -228,6 +233,9 @@ end
 
 pitchPrev, yawPrev = 0, 0
 seatLosQtPrev = {0, 0, 0, 1}
+las1Direc = {{0, 0}}
+las2Direc = {{0, 0}}
+lasQtBuf = {{0, 0, 0, 1}}
 function onTick()
     --インプット
     do
@@ -236,14 +244,40 @@ function onTick()
         lasPvx, lasPvy, lasPvz = INN(7)/60, INN(8)/60, INN(9)/60
         lasPrvx, lasPrvy, lasPrvz = INN(10)*pi2/60, INN(11)*pi2/60, INN(12)*pi2/60
 
-        seatQt = euler2Qt(INN(13), INN(14), INN(15))
+        las1Dist, las2Dist = INN(13), INN(14)
 
         bodQt = euler2Qt(INN(16), INN(17), INN(18))
         bodPrvx, bodPrvy, bodPrvz = INN(19)*pi2/60, INN(20)*pi2/60, INN(21)*pi2/60
 
         seatLosYaw, seatLosPitch = INN(22)*pi2, INN(23)*pi2
 
+        seatPx, seatPy, seatPz = INN(24), INN(25), INN(26)
+        seatQt = euler2Qt(INN(27), INN(28), INN(29))
+
         vehicleCamMode = PRN("Vehicle Camera Mode")
+
+        FPSoffsetX = PRN("FPS view offset X")
+        FPSoffsetY = PRN("FPS view offset Y")
+        FPSoffsetZ = PRN("FPS view offset Z")
+        TPSoffsetX = PRN("TPS view offset X")
+        TPSoffsetY = PRN("TPS view offset Y")
+        TPSoffsetZ = PRN("TPS view offset Z")
+        lasOffsetX = PRN("Laser offset X")
+        lasOffsetY = PRN("Laser offset Y")
+        lasOffsetZ = PRN("Laser offset Z")
+    end
+
+    --レーザーが指している座標
+    do
+        --レーザー距離が0なら適当な値を入れる
+        las1Dist = las1Dist == 0 and 100 or las1Dist
+        las2Dist = las2Dist == 0 and 100 or las2Dist
+
+        a, b = las1Direc[1], las2Direc[1]
+        Lx, Ly, Lz = polar2Rect(a[1], a[2], las1Dist, false)
+        las1Wx, las1Wy, las1Wz = local2World(Lx + lasOffsetX, Ly + lasOffsetY, Lz + lasOffsetZ, lasPx, lasPy, lasPz, lasQtBuf[1])
+        Lx, Ly, Lz = polar2Rect(b[1], b[2], las2Dist, false)
+        las2Wx, las2Wy, las2Wz = local2World(Lx + lasOffsetX, Ly + lasOffsetY, Lz + lasOffsetZ, lasPx, lasPy, lasPz, lasQtBuf[1])
     end
 
     --視線の基準となる真の姿勢
@@ -273,27 +307,46 @@ function onTick()
     do
         --ワールド視線方向
         if is1P or vehicleCamMode == 2 then     --一人称または固定の時
+            --視点からの距離を設定
+            losWxOff, losWyOff, losWzOff = local2World(FPSoffsetX, FPSoffsetY, FPSoffsetZ, seatPx, seatPy, seatPz, seatQt)
+            losDist = distance3(las1Wx - losWxOff, las1Wy - losWyOff, las1Wz - losWzOff)
+            losDist = las1Dist ~= 4000 and losDist or 100
+
             --ローカル座標系
-            Lx, Ly, Lz = polar2Rect(seatLosPitch, seatLosYaw, 1000, true)
+            Lx, Ly, Lz = polar2Rect(seatLosPitch, seatLosYaw, losDist, true)
             losWx, losWy, losWz = local2World(Lx, Ly, Lz, 0, 0, 0, seatQt)
         else                                    --水平固定または自由
-            Wx, Wy, Wz = local2World(0, 1000, 0, 0, 0, 0, seatLosQt)
+            --視点からの距離を設定
+            losWxOff, losWyOff, losWzOff = local2World(TPSoffsetX, TPSoffsetY, TPSoffsetZ, seatPx, seatPy, seatPz, seatQt)
+            losDist = distance3(las1Wx - losWxOff, las1Wy - losWyOff, las1Wz - losWzOff)
+            losDist = las1Dist ~= 4000 and losDist or 100
+
+            --ワールド座標系でピッチのみ零点シフト
+            Wx, Wy, Wz = local2World(0, 1, 0, 0, 0, 0, seatLosQt)
             Wpi, Wya = rect2Polar(Wx, Wy, Wz, true)
-            losWx, losWy, losWz = polar2Rect(seatLosPitch + Wpi, seatLosYaw + Wya, 1000, true)
+            losWx, losWy, losWz = polar2Rect(seatLosPitch + Wpi, seatLosYaw + Wya, losDist, true)
         end
 
-        losWx, losWy, losWz = losWx + lasPx, losWy + lasPz, losWz + lasPy
+        losWx, losWy, losWz = losWx + losWxOff, losWy + losWyOff, losWz + losWzOff
 
         OUN(21, losWx)
         OUN(22, losWy)
         OUN(23, losWz)
+
+        --レーザー座標のオフセット
+        Wx, Wy, Wz = local2World(lasOffsetX, lasOffsetY, lasOffsetZ, 0, 0, 0, lasQt)
         
         --スタビライザー
-        pi, ya = stabilizer2(lasPx, lasPy, lasPz, lasQt, lasPvx, lasPvy, lasPvz, lasPrvx, lasPrvy, lasPrvz, losWx, losWy, losWz, 0, 0, 0, losWx, losWy, losWz, LASER_STABI_T)
+        pi, ya = stabilizer2(lasPx + Wx, lasPy + Wz, lasPz + Wy, lasQt, lasPvx, lasPvy, lasPvz, lasPrvx, lasPrvy, lasPrvz, losWx, losWy, losWz, 0, 0, 0, losWx, losWy, losWz, LASER_STABI_T)
 
         las1pitch, las1yaw = pi, ya
         las2pitch, las2yaw = pi, ya
     end
+
+    OUB(1, true)
+    OUN(1, las1Wx)
+    OUN(2, las1Wy)
+    OUN(3, las1Wz)
 
     OUN(31, seatYawControl)
 
@@ -302,6 +355,19 @@ function onTick()
     OUN(12, -las2yaw*8)
     OUN(13, -las2pitch*8)
 
+    --レーザー方向の遅延
+    do
+        table.insert(las1Direc, {las1pitch, las1yaw})
+        table.insert(las2Direc, {las2pitch, las2yaw})
+        table.insert(lasQtBuf, {table.unpack(lasQt)})
+
+        if #las1Direc > LASER_DELAY then
+            table.remove(las1Direc, 1)
+            table.remove(las2Direc, 1)
+            table.remove(lasQtBuf, 1)
+        end
+    end
+    
     --一人称視点フラグ
     is1P = false
 end
