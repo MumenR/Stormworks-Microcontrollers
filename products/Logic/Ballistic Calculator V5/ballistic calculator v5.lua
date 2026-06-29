@@ -15,7 +15,7 @@ do
     simulator = simulator
     simulator:setScreen(1, "3x3")
 
-    simulator:setProperty("Weapon Type", 2) -- 1: Bertha, 2: Artillery, 3: Battle, 4: Heavy Auto, 5: Rotary Auto, 6: Light Auto, 7: Machine Gun, 8: Rocket Launcher
+    simulator:setProperty("Weapon Type", 9) -- 1: Bertha, 2: Artillery, 3: Battle, 4: Heavy Auto, 5: Rotary Auto, 6: Light Auto, 7: Machine Gun, 8: Rocket Launcher, 9: Missile Launcher
     simulator:setProperty("standby yaw position (degree)", 0)
     simulator:setProperty("standby pitch position (degree)", 0)
     simulator:setProperty("min pitch (degree)", -15)
@@ -129,41 +129,32 @@ parameter = {
 
 --関数群
 do
-    --積(A*B)
-    function mul(A, B, C, sum)
-        C = {}
-        for i = 1, #A do
-            C[i] = {}
-            for j = 1, #B[1] do
-                sum = 0
-                for k = 1, #A[1] do
-                    sum = sum + A[i][k]*B[k][j]
-                end
-                C[i][j] = sum
-            end
-        end
-        return C
+    --オイラー角からクォータニオン変換
+    function euler2Qt(Ex, Ey, Ez)
+        return mulQt({0, math.sin(-Ez/2), 0, math.cos(-Ez/2)}, mulQt({0, 0, math.sin(-Ey/2), math.cos(-Ey/2)}, {math.sin(-Ex/2), 0, 0, math.cos(-Ex/2)}))
     end
 
-    function R(Ex, Ey, Ez)
-        local a, b, c, d, e, f = math.cos(Ex), math.sin(Ex), math.cos(Ey), math.sin(Ey), math.cos(Ez), math.sin(Ez)
+    --クォータニオンの掛け算(p: 姿勢, q:回転)
+    function mulQt(q, p)
+        local a, b, c, d = table.unpack(q)
+        local x, y, z, w = table.unpack(p)
         return {
-            {e*c,   e*d*a + f*b,    e*d*b - f*a},
-            {-d,    c*a,            c*b},
-            {f*c,   f*d*a - e*b,    f*d*b + e*a}
+            d*x - c*y + b*z + a*w,
+            c*x + d*y - a*z + b*w,
+            -b*x + a*y + d*z + c*w,
+            -a*x - b*y - c*z + d*w
         }
     end
 
-    --ローカル座標からワールド座標へ変換(Physics sensor使用)
-    function local2World(Lx, Ly, Lz, Px, Py, Pz, Ex, Ey, Ez)
-        local W = mul(R(Ex, Ey, Ez), {{Lx}, {Ly}, {Lz}})
-        return W[1][1] + Px, W[2][1] + Pz, W[3][1] + Py
+    --ローカル座標からワールド座標へ
+    function local2World(Lx, Ly, Lz, Px, Py, Pz, q)
+        x, y, z = table.unpack(mulQt(q, mulQt({Lx, Ly, Lz, 0}, {-q[1], -q[2], -q[3], q[4]})))
+        return x + Px, y + Pz, z + Py
     end
 
-    --ワールド座標からローカル座標へ変換(Physics sensor使用)
-    function world2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
-        local L = mul({{Wx - Px, Wy - Pz, Wz - Py}}, R(Ex, Ey, Ez))
-        return L[1][1], L[1][2], L[1][3]
+    --ワールド座標からローカル座標へ
+    function world2Local(Wx, Wy, Wz, Px, Py, Pz, q)
+        return table.unpack(mulQt({-q[1], -q[2], -q[3], q[4]}, mulQt({Wx - Px, Wy - Pz, Wz - Py, 0}, q)))
     end
 
     --割線ブレント法更新(func:関数, b, fb, a, fa:初期のxとf(x), times: 更新回数, MAX_ERROR: 許容誤差)
@@ -246,14 +237,14 @@ do
     end
 
     --風速をワールド風速に変換
-    function windLocal2World(windLv, windLdirec, Pvx, Pvz, Ex, Ey, Ez)
+    function windLocal2World(windLv, windLdirec, Pvx, Pvz, Qt)
         local windLvx, windLvy, x, y, z, e_x, e_y, e_z, windWdirec, windWv
         --ローカル風速
         windLvx = windLv*math.sin(windLdirec*pi2) - Pvx
         windLvy = windLv*math.cos(windLdirec*pi2) - Pvz
         --風速ベクトルと単位ｚベクトルをワールド変換
-        x, y, z = local2World(windLvx, windLvy, 0, 0, 0, 0, Ex, Ey, Ez)
-        e_x, e_y, e_z = local2World(0, 0, 1, 0, 0, 0, Ex, Ey, Ez)
+        x, y, z = local2World(windLvx, windLvy, 0, 0, 0, 0, Qt)
+        e_x, e_y, e_z = local2World(0, 0, 1, 0, 0, 0, Qt)
         --ワールド風速を計算
         windVx = x - (e_x*z)/e_z
         windVy = y - (e_y*z)/e_z
@@ -322,13 +313,13 @@ do
 
     --(return: futurePitch, futureYaw)
     --Prv[rad/tick], Tは視線角速度観測用のターゲット位置と速度, losは向くべき方向
-    function stabilizer(Px, Py, Pz, Ex, Ey, Ez, Pvx, Pvy, Pvz, Prvx, Prvy, Prvz, Tx, Ty, Tz, Tvx, Tvy, Tvz, losWx, losWy, losWz, DELAY)
+    function stabilizer(Px, Py, Pz, Qt, Pvx, Pvy, Pvz, Prvx, Prvy, Prvz, Tx, Ty, Tz, Tvx, Tvy, Tvz, losWx, losWy, losWz, DELAY)
         local TLx, TLy, TLz, TLvx, TLvy, TLvz, Lrvx, Lrvy, Lrvz, losRvx, losRvy, losRvz, Vrx, Vry, Vrz, T2, absRv, cos, sin, dot, losFutureX, losFutureY, losFutureZ, losLx, losLy, losLz
         --ローカル座標
-        TLx, TLy, TLz = world2Local(Tx, Ty, Tz, Px, Py, Pz, Ex, Ey, Ez)
-        TLvx, TLvy, TLvz = world2Local(Tvx, Tvy, Tvz, 0, 0, 0, Ex, Ey, Ez)
-        Lrvx, Lrvy, Lrvz = world2Local(Prvx, Prvz, Prvy, 0, 0, 0, Ex, Ey, Ez)
-        losLx, losLy, losLz = world2Local(losWx, losWy, losWz, Px, Py, Pz, Ex, Ey, Ez)
+        TLx, TLy, TLz = world2Local(Tx, Ty, Tz, Px, Py, Pz, Qt)
+        TLvx, TLvy, TLvz = world2Local(Tvx, Tvy, Tvz, 0, 0, 0, Qt)
+        Lrvx, Lrvy, Lrvz = world2Local(Prvx, Prvz, Prvy, 0, 0, 0, Qt)
+        losLx, losLy, losLz = world2Local(losWx, losWy, losWz, Px, Py, Pz, Qt)
         --相対速度
         Vrx, Vry, Vrz = TLvx - Pvx, TLvy - Pvz, TLvz - Pvy
         --視線角速度
@@ -506,32 +497,16 @@ end
 function onTick()
     --インプット
     do
-        Tx = INN(1)
-        Ty = INN(2)
-        Tz = INN(3)
-        Tvx = INN(4)
-        Tvy = INN(5)
-        Tvz = INN(6)
-        Tax = INN(7)
-        Tay = INN(8)
-        Taz = INN(9)
+        Tx, Ty, Tz = INN(1), INN(2), INN(3)
+        Tvx, Tvy, Tvz = INN(4), INN(5), INN(6)
+        Tax, Tay, Taz = INN(7), INN(8), INN(9)
 
-        BodEx = INN(10)
-        BodEy = INN(11)
-        BodEz = INN(12)
-        BodPvx = INN(13)/60
-        BodPvy = INN(14)/60
-        BodPvz = INN(15)/60
-        BodPrvx = INN(16)*pi2/60
-        BodPrvy = INN(17)*pi2/60
-        BodPrvz = INN(18)*pi2/60
+        BodQt = euler2Qt(INN(10), INN(11), INN(12))
+        BodPvx, BodPvy, BodPvz = INN(13)/60, INN(14)/60, INN(15)/60
+        BodPrvx, BodPrvy, BodPrvz = INN(16)*pi2/60, INN(17)*pi2/60, INN(18)*pi2/60
 
-        TurPx = INN(19)
-        TurPy = INN(20)
-        TurPz = INN(21)
-        TurEx = INN(22)
-        TurEy = INN(23)
-        TurEz = INN(24)
+        TurPx, TurPy, TurPz = INN(19), INN(20), INN(21)
+        TurQt = euler2Qt(INN(22), INN(23), INN(24))
 
         windLv = INN(25)/60
         windLdirec = INN(26)
@@ -585,12 +560,12 @@ function onTick()
 
     --ピボットのヨーとピッチに変換
     do
-        Wx, Wy, Wz = local2World(0, 1, 0, 0, 0, 0, TurEx, TurEy, TurEz)
-        Lx, Ly, Lz = world2Local(Wx, Wy, Wz, 0, 0, 0, BodEx, BodEy, BodEz)
+        Wx, Wy, Wz = local2World(0, 1, 0, 0, 0, 0, TurQt)
+        Lx, Ly, Lz = world2Local(Wx, Wy, Wz, 0, 0, 0, BodQt)
         currentPitch, currentYaw = rect2Polar(Lx, Ly, Lz, false)
     end
     --ワールド速度算出
-    Wvx, Wvy, Wvz = local2World(BodPvx, BodPvz, BodPvy, 0, 0, 0, BodEx, BodEy, BodEz)
+    Wvx, Wvy, Wvz = local2World(BodPvx, BodPvz, BodPvy, 0, 0, 0, BodQt)
 
     --補足時かつ起動時に弾道計算機有効
     if TRD1Exists and power and WPN_TYPE ~= 9 then
@@ -599,7 +574,7 @@ function onTick()
         isRocket = WPN_TYPE == 8
 
         --オフセット
-        TurPx, TurPz, TurPy = local2World(PHY_OFFSET_X, PHY_OFFSET_Y, PHY_OFFSET_Z, TurPx, TurPy, TurPz, TurEx, TurEy, TurEz)
+        TurPx, TurPz, TurPy = local2World(PHY_OFFSET_X, PHY_OFFSET_Y, PHY_OFFSET_Z, TurPx, TurPy, TurPz, TurQt)
 
         --自分基準ワールド座標系へ
         TWLx, TWLy, TWLz = Tx - TurPx, Ty - TurPz, Tz - TurPy
@@ -612,7 +587,7 @@ function onTick()
         WvxyDirec = math.atan(Wvx, Wvy)
 
         --海面高度でのワールド風速に変換
-        windWv, windWdirec = windLocal2World(windLv, windLdirec, BodPvx, BodPvz, BodEx, BodEy, BodEz)
+        windWv, windWdirec = windLocal2World(windLv, windLdirec, BodPvx, BodPvz, BodQt)
         windWv = windWv/((((44.33 - TurPy/1000)/11.89)^5.256)/1013)
         g = math.exp(-TurPy/60000)/120
 
@@ -669,7 +644,7 @@ function onTick()
 
         --向くべき方向を仮想的に３次元座標で算出
         losWx, losWy, losWz = TurPx + INFTY*math.cos(Elevation)*math.sin(Azimuth), TurPz + INFTY*math.cos(Elevation)*math.cos(Azimuth), TurPy + INFTY*math.sin(Elevation)
-        Lx, Ly, Lz = world2Local(losWx, losWy, losWz, TurPx, TurPy, TurPz, BodEx, BodEy, BodEz)
+        Lx, Ly, Lz = world2Local(losWx, losWy, losWz, TurPx, TurPy, TurPz, BodQt)
 
         --射撃可能判定用の、本来向くべき向き
         idealPitch, idealYaw = rect2Polar(Lx, Ly, Lz, false)
@@ -680,9 +655,9 @@ function onTick()
 
     --射程外またはミサイルモードの場合、目標方向を直接向く
     if not inRange and TRD1Exists and power then
-        stabiPitch, stabiYaw = stabilizer(TurPx, TurPy, TurPz, BodEx, BodEy, BodEz, BodPvx, BodPvy, BodPvz, BodPrvx, BodPrvy, BodPrvz, Tx, Ty, Tz, Tvx, Tvy, Tvz, Tx, Ty, Tz, STABI_DELAY_VELO)
-        roboticPitch, roboticYaw = stabilizer(TurPx, TurPy, TurPz, BodEx, BodEy, BodEz, BodPvx, BodPvy, BodPvz, BodPrvx, BodPrvy, BodPrvz, Tx, Ty, Tz, Tvx, Tvy, Tvz, Tx, Ty, Tz, STABI_DELAY_ROBO)
-        Lx, Ly, Lz = world2Local(Tx, Ty, Tz, TurPx, TurPy, TurPz, BodEx, BodEy, BodEz)
+        stabiPitch, stabiYaw = stabilizer(TurPx, TurPy, TurPz, BodQt, BodPvx, BodPvy, BodPvz, BodPrvx, BodPrvy, BodPrvz, Tx, Ty, Tz, Tvx, Tvy, Tvz, Tx, Ty, Tz, STABI_DELAY_VELO)
+        roboticPitch, roboticYaw = stabilizer(TurPx, TurPy, TurPz, BodQt, BodPvx, BodPvy, BodPvz, BodPrvx, BodPrvy, BodPrvz, Tx, Ty, Tz, Tvx, Tvy, Tvz, Tx, Ty, Tz, STABI_DELAY_ROBO)
+        Lx, Ly, Lz = world2Local(Tx, Ty, Tz, TurPx, TurPy, TurPz, BodQt)
         idealPitch, idealYaw = rect2Polar(Lx, Ly, Lz, false)
     end
 
@@ -694,7 +669,8 @@ function onTick()
         pitchError = math.abs(same_rotation(idealPitch - currentPitch))*360
         yawError = math.abs(same_rotation(idealYaw - currentYaw))*360
         inError = pitchError < PIVOT_MAX_ERROR and yawError < PIVOT_MAX_ERROR
-        shootable = inRange and inError and currentInFOV and targetInFOVPitch and targetInFOVYaw and not reloadEnable
+        --ミサイルモードなら電源オン, それ以外は射程内
+        shootable = ((WPN_TYPE == 9 and power) or inRange) and inError and currentInFOV and targetInFOVPitch and targetInFOVYaw and not reloadEnable
     end
 
     --駆動系
@@ -704,10 +680,10 @@ function onTick()
             --向くべき座標計算
             if inRange then
                 --向くべき未来位置計算(速度ピボット)
-                stabiPitch, stabiYaw = stabilizer(TurPx, TurPy, TurPz, BodEx, BodEy, BodEz, BodPvx, BodPvy, BodPvz, BodPrvx, BodPrvy, BodPrvz, impx, impy, impz, impvx, impvy, impvz, losWx, losWy, losWz, STABI_DELAY_VELO)
+                stabiPitch, stabiYaw = stabilizer(TurPx, TurPy, TurPz, BodQt, BodPvx, BodPvy, BodPvz, BodPrvx, BodPrvy, BodPrvz, impx, impy, impz, impvx, impvy, impvz, losWx, losWy, losWz, STABI_DELAY_VELO)
 
                 --向くべき未来位置計算(ロボティックピボット)
-                roboticPitch, roboticYaw = stabilizer(TurPx, TurPy, TurPz, BodEx, BodEy, BodEz, BodPvx, BodPvy, BodPvz, BodPrvx, BodPrvy, BodPrvz, impx, impy, impz, impvx, impvy, impvz, losWx, losWy, losWz, STABI_DELAY_ROBO)
+                roboticPitch, roboticYaw = stabilizer(TurPx, TurPy, TurPz, BodQt, BodPvx, BodPvy, BodPvz, BodPrvx, BodPrvy, BodPrvz, impx, impy, impz, impvx, impvy, impvz, losWx, losWy, losWz, STABI_DELAY_ROBO)
             end
 
             if reloadEnable then
@@ -773,6 +749,7 @@ function onTick()
 
     OUN(3, pitchError)
     OUN(4, yawError)
+    OUN(5, tick/60)
 
     OUN(30, tick)
     OUN(31, Elevation)

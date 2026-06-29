@@ -60,9 +60,6 @@ SEAT_PIVOT = 32/5
 
 LASER_STABI_T = 4
 LASER_DELAY = 4
-t = 0
-
-is1P = false
 
 --関数
 do
@@ -230,8 +227,34 @@ do
         end
         return clamp(control, min, max), errorSum, error
     end
+
+    --２つのベクトルから法線ベクトルを算出
+    function calNomVec(x1, y1, z1, x2, y2, z2)
+        local nx, ny, nz
+        nx = y1*z2 - z1*y2
+        ny = z1*x2 - x1*z2
+        nz = x1*y2 - y1*x2
+        --正規化
+        local len = math.sqrt(nx*nx + ny*ny + nz*nz)
+        if len > 0 then
+            nx, ny, nz = nx/len, ny/len, nz/len
+        else
+            nx, ny, nz = 0, 0, 0
+        end
+        --上下逆なら反転
+        if nz < 0 then
+            nx, ny, nz = -nx, -ny, -nz
+        end
+        return nx, ny, nz
+    end
+
+    --標点、基準点、法線ベクトルから対地高度を算出
+    function calGndAlt(targetX, targetY, targetZ, gndX, gndY, gndZ, nomX, nomY, nomZ)
+        return (targetX - gndX)*nomX + (targetY - gndY)*nomY + (targetZ - gndZ)*nomZ
+    end
 end
 
+t = 0
 pitchPrev, yawPrev = 0, 0
 seatLosQtPrev = {0, 0, 0, 1}
 las1Direc = {{0, 0}}
@@ -239,6 +262,8 @@ las2Direc = {{0, 0}}
 lasQtBuf = {{0, 0, 0, 1}}
 trackInPre = false
 isTracking = false
+is1P = false
+
 function onTick()
     --インプット
     do
@@ -276,6 +301,13 @@ function onTick()
         targetSize = PRN("Target size [m]")
     end
 
+    --オフセット
+    do
+        --レーザー座標のオフセット
+        Wx, Wy, Wz = local2World(lasOffsetX, lasOffsetY, lasOffsetZ, 0, 0, 0, lasQt)
+        lasPx, lasPy, lasPz = lasPx + Wx, lasPy + Wz, lasPz + Wy
+    end
+
     --追尾開始のパルス
     trackPulse = not trackInPre and trackIn
     trackInPre = trackIn
@@ -286,9 +318,9 @@ function onTick()
         do
             a, b = las1Direc[1], las2Direc[1]
             Lx, Ly, Lz = polar2Rect(a[1], a[2], las1Dist, false)
-            las1Wx, las1Wy, las1Wz = local2World(Lx + lasOffsetX, Ly + lasOffsetY, Lz + lasOffsetZ, lasPx, lasPy, lasPz, lasQtBuf[1])
+            las1Wx, las1Wy, las1Wz = local2World(Lx, Ly, Lz, lasPx, lasPy, lasPz, lasQtBuf[1])
             Lx, Ly, Lz = polar2Rect(b[1], b[2], las2Dist, false)
-            las2Wx, las2Wy, las2Wz = local2World(Lx + lasOffsetX, Ly + lasOffsetY, Lz + lasOffsetZ, lasPx, lasPy, lasPz, lasQtBuf[1])
+            las2Wx, las2Wy, las2Wz = local2World(Lx, Ly, Lz, lasPx, lasPy, lasPz, lasQtBuf[1])
         end
 
         --視線の基準となる真の姿勢
@@ -343,12 +375,9 @@ function onTick()
             OUN(21, losWx)
             OUN(22, losWy)
             OUN(23, losWz)
-
-            --レーザー座標のオフセット
-            Wx, Wy, Wz = local2World(lasOffsetX, lasOffsetY, lasOffsetZ, 0, 0, 0, lasQt)
             
             --スタビライザー
-            losPitch, losYaw = stabilizer2(lasPx + Wx, lasPy + Wz, lasPz + Wy, lasQt, lasPvx, lasPvy, lasPvz, lasPrvx, lasPrvy, lasPrvz, losWx, losWy, losWz, 0, 0, 0, losWx, losWy, losWz, LASER_STABI_T)
+            losPitch, losYaw = stabilizer2(lasPx, lasPy, lasPz, lasQt, lasPvx, lasPvy, lasPvz, lasPrvx, lasPrvy, lasPrvz, losWx, losWy, losWz, 0, 0, 0, losWx, losWy, losWz, LASER_STABI_T)
         end
 
         --レーザー追尾
@@ -357,32 +386,71 @@ function onTick()
             if trackPulse and not isTracking and las1Dist ~= 0 and las1Dist ~= 4000 then
                 isTracking = true
                 trackT = 0
+                TGTx, TGTy, TGTz = las1Wx, las1Wy, las1Wz
+                gndX, gndY, gndZ = las2Wx, las2Wy, las2Wz
+                nomX, nomY, nomZ = 0, 0, 1
             --追尾終了判定
             elseif (isTracking and trackPulse) or las1Dist == 0 or las1Dist == 4000 then
                 isTracking = false
             end
 
             if isTracking then
-                --走査範囲計算
-                tgtDist = las1Dist
-                
-                delta = math.atan(targetSize/2, las1Dist)/pi2
+                --ターゲットか判定
+                las1Alt = calGndAlt(las1Wx, las1Wy, las1Wz, gndX, gndY, gndZ, nomX, nomY, nomZ)
+                las2Alt = calGndAlt(las2Wx, las2Wy, las2Wz, gndX, gndY, gndZ, nomX, nomY, nomZ)
+                las1Dist = distance3(las1Wx - TGTx, las1Wy - TGTy, las1Wz - TGTz)
+                las2Dist = distance3(las2Wx - TGTx, las2Wy - TGTy, las2Wz - TGTz)
 
-                --レーザー方向
-                --レーザー１は上中下
-                if trackT%3 == 0 then       --上
-                    las1pitch, las1yaw = losPitch + delta/2, losYaw
-                elseif trackT%3 == 1 then   --中
-                    las1pitch, las1yaw = losPitch, losYaw
-                else                        --下
-                    las1pitch, las1yaw = losPitch - delta/2, losYaw
+                --ターゲットに当たったらなら平均をとる
+                if las1Dist < targetSize and las1Alt > 0.5 and las2Dist < targetSize and las2Alt > 0.5 then
+                    TGTx, TGTy, TGTz = (TGTx + las1Wx + las2Wx)/3, (TGTy + las1Wy + las2Wy)/3, (TGTz + las1Wz + las2Wz)/3
+                elseif las1Dist < targetSize and las1Alt > 0.5 then
+                    TGTx, TGTy, TGTz = (TGTx + las1Wx)/2, (TGTy + las1Wy)/2, (TGTz + las1Wz)/2
+                elseif las2Dist < targetSize and las2Alt > 0.5 then
+                    TGTx, TGTy, TGTz = (TGTx + las2Wx)/2, (TGTy + las2Wy)/2, (TGTz + las2Wz)/2
                 end
-                --レーザー２は左右
-                if trackT%2 == 0 then       --左
-                    las2pitch, las2yaw = losPitch, losYaw - delta
-                else                        --右
-                    las2pitch, las2yaw = losPitch, losYaw + delta
+
+                --走査範囲計算
+                delta = math.atan(targetSize/2, distance3(TGTx - lasPx, TGTy - lasPz, TGTz - lasPy))/pi2
+                tgtPitch, tgtYaw = stabilizer2(lasPx, lasPy, lasPz, lasQt, lasPvx, lasPvy, lasPvz, lasPrvx, lasPrvy, lasPrvz, TGTx, TGTy, TGTz, 0, 0, 0, TGTx, TGTy, TGTz, LASER_STABI_T)
+
+                --目標下に向けて、初期地面法線ベクトルを取得
+                if trackT == 0 then
+                    las1pitch, las1yaw = tgtPitch - delta, tgtYaw + delta/10
+                    las2pitch, las2yaw = tgtPitch - 1.1*delta, tgtYaw
+                else
+                    --レーザー１は上中下
+                    if trackT%3 == 0 then       --上
+                        las1pitch, las1yaw = tgtPitch + delta/2, tgtYaw
+                    elseif trackT%3 == 1 then   --中
+                        las1pitch, las1yaw = tgtPitch, tgtYaw
+                    else                        --下
+                        las1pitch, las1yaw = tgtPitch - delta/2, tgtYaw
+                    end
+                    --レーザー２は左右
+                    if trackT%2 == 0 then       --左
+                        las2pitch, las2yaw = tgtPitch, tgtYaw - delta
+                    else                        --右
+                        las2pitch, las2yaw = tgtPitch, tgtYaw + delta
+                    end
                 end
+
+                --法線ベクトル計算
+                if trackT == LASER_DELAY - 1 then
+                    --基準点
+                    gndX, gndY, gndZ = las2Wx, las2Wy, las2Wz
+                elseif trackT == LASER_DELAY then
+                    --法線ベクトル
+                    nomX, nomY, nomZ = calNomVec(las1Wx - gndX, las1Wy - gndY, las1Wz - gndZ, las2Wx - gndX, las2Wy - gndY, las2Wz - gndZ)
+                end
+
+                --ターゲット座標出力
+                if trackT > LASER_DELAY then
+                    OUN(1, TGTx)
+                    OUN(2, TGTy)
+                    OUN(3, TGTz)
+                end
+
 
                 trackT = trackT + 1
             else
@@ -399,9 +467,6 @@ function onTick()
         las2pitch, las2yaw = clamp(las2pitch, -0.125, 0.125), clamp(las2yaw, -0.125, 0.125)
 
         OUB(1, true)
-        OUN(1, losWx)
-        OUN(2, losWy)
-        OUN(3, losWz)
 
         OUN(31, seatYawControl)
 
