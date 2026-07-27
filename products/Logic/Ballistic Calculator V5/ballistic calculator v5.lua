@@ -15,7 +15,7 @@ do
     simulator = simulator
     simulator:setScreen(1, "3x3")
 
-    simulator:setProperty("Weapon Type", 9) -- 1: Bertha, 2: Artillery, 3: Battle, 4: Heavy Auto, 5: Rotary Auto, 6: Light Auto, 7: Machine Gun, 8: Rocket Launcher, 9: Missile Launcher
+    simulator:setProperty("Weapon Type", 8) -- 1: Bertha, 2: Artillery, 3: Battle, 4: Heavy Auto, 5: Rotary Auto, 6: Light Auto, 7: Machine Gun, 8: Rocket Launcher, 9: Missile Launcher
     simulator:setProperty("standby yaw position (degree)", 0)
     simulator:setProperty("standby pitch position (degree)", 0)
     simulator:setProperty("min pitch (degree)", -15)
@@ -97,14 +97,14 @@ ROCKET_ACL = 600/3600
 ROCKET_ACL_TICK = 60
 tick = 0
 TRD1_DELAY = 0
-STABI_DELAY_VELO = 7.5
-STABI_DELAY_ROBO = 9.5
-STABI_P = 8
+STABI_DELAY_VELO = 8
+STABI_DELAY_ROBO = 9.8
+STABI_P = 7.5
 STABI_I = 0
 --STABI_D = 15 (スタビモードUltimateのときに15, Nomalのときは0)
-ERROR_P = 1
+ERROR_P = 0
 ERROR_I = 0.05
-ERROR_D = 1
+ERROR_D = 0
 ALT_INTERVAL = 2000                         --数値積分の高度間隔[m]
 MIN_INTERVAL = 60*(ALT_INTERVAL/1000)       --数値積分の最小ステップ幅[tick]
 MAX_INTERVAL = math.sqrt(240*ALT_INTERVAL)  --数値積分の最大ステップ幅[tick]
@@ -281,7 +281,7 @@ do
     function PID(P, I, D, target, current, errorSumPre, errorPre, min, max)
         local error, errorSum, errorDiff, control
         error = target - current
-        errorSum = math.abs(error) < 5/360 and errorSumPre + error or errorSumPre
+        errorSum = math.abs(error) < 1/360 and errorSumPre + error or 0
         errorDiff = error - errorPre
         control = P*error + I*errorSum + D*errorDiff
 
@@ -294,21 +294,6 @@ do
 
     function same_rotation(x)
         return (x + 0.5)%1 - 0.5
-    end
-    
-    function limit_rotation(control, position, min, max)
-        if position >= max then
-            if control > 0 then
-                control = 0
-            end
-            control = control - 0.01
-        elseif position <= min then
-            if control < 0 then
-                control = 0
-            end
-            control = control + 0.01
-        end
-        return control
     end
 
     --(return: futurePitch, futureYaw)
@@ -390,7 +375,7 @@ do
         return f, isArrived
     end
 
-    --仰角時指定時の誤差を返す
+    --仰角時指定時の誤差を返す(直射ならZ誤差、曲射ならY誤差)
     function secantElevation(El)
 
         --ターゲット座標(砲弾方向基準ローカル座標系)
@@ -426,7 +411,7 @@ do
 
             --目標を通過したら正確な位置とステップ幅を再計算(活線法)
             if isArrived then
-                tick, _, nIter = secantBrentsMethod(secantEuler, h, f, 0, (highAngleEnable and TGT0y or TGT0z), 10, 0.01)
+                tick, _, nIter = secantBrentsMethod(secantEuler, h, f, 0, (highAngleEnable and TGT0z or TGT0y), 10, 0.01)
                 --OUN(20, nIter)  --デバッグ用
 
                 return highAngleEnable and (TGTy - y) or (TGTz - z)
@@ -560,9 +545,20 @@ function onTick()
 
     --ピボットのヨーとピッチに変換
     do
+        --前方向をローカル変換
         Wx, Wy, Wz = local2World(0, 1, 0, 0, 0, 0, TurQt)
         Lx, Ly, Lz = world2Local(Wx, Wy, Wz, 0, 0, 0, BodQt)
         currentPitch, currentYaw = rect2Polar(Lx, Ly, Lz, false)
+
+        --上方向をローカル変換
+        Wx, Wy, Wz = local2World(0, 0, 1, 0, 0, 0, TurQt)
+        Lx, Ly, Lz = world2Local(Wx, Wy, Wz, 0, 0, 0, BodQt)
+
+        --裏返っているか判定
+        if Lz < 0 then
+            currentPitch = same_rotation(0.5 - currentPitch)
+            currentYaw = same_rotation(currentYaw + 0.5)
+        end
     end
     --ワールド速度算出
     Wvx, Wvy, Wvz = local2World(BodPvx, BodPvz, BodPvy, 0, 0, 0, BodQt)
@@ -618,7 +614,7 @@ function onTick()
                 Elevation = secantBrentsMethod(secantElevation0, math.atan(goalZ, goalY), secantElevation0(math.atan(goalZ, goalY)), highAngleBorder, secantElevation0(highAngleBorder), 10, (0.1/360)*pi2)
             else
                 --曲射解
-                Elevation = secantBrentsMethod(secantElevation0, math.acos(K*goalY/V0Border) - 0.001, secantElevation0(math.acos(K*goalY/V0Border) - 0.001), highAngleBorder, secantElevation0(highAngleBorder), 10, (0.1/360)*pi2)
+                Elevation = secantBrentsMethod(secantElevation0, math.acos(K*goalY/V0Border) - 1e-6, secantElevation0(math.acos(K*goalY/V0Border) - 1e-6), highAngleBorder, secantElevation0(highAngleBorder), 10, (0.1/360)*pi2)
             end
         end
 
@@ -664,13 +660,13 @@ function onTick()
     --射撃可能判定
     do
         currentInFOV = same_rotation(currentYaw) > MIN_YAW and same_rotation(currentYaw) < MAX_YAW and currentPitch > MIN_PITCH and currentPitch < MAX_PITCH
-        targetInFOVPitch = math.sin(idealPitch) > math.sin(MIN_PITCH) and math.sin(idealPitch) < math.sin(MAX_PITCH)
+        targetInFOVPitch = idealPitch > MIN_PITCH and idealPitch < MAX_PITCH
         targetInFOVYaw = idealYaw > MIN_YAW and idealYaw < MAX_YAW
         pitchError = math.abs(same_rotation(idealPitch - currentPitch))*360
         yawError = math.abs(same_rotation(idealYaw - currentYaw))*360
         inError = pitchError < PIVOT_MAX_ERROR and yawError < PIVOT_MAX_ERROR
-        --ミサイルモードなら電源オン, それ以外は射程内
-        shootable = ((WPN_TYPE == 9 and power) or inRange) and inError and currentInFOV and targetInFOVPitch and targetInFOVYaw and not reloadEnable
+        --ミサイルモードなら電源オンかつTRD1存在, それ以外は射程内
+        shootable = ((WPN_TYPE == 9 and power and TRD1Exists) or inRange) and inError and currentInFOV and targetInFOVPitch and targetInFOVYaw and not reloadEnable
     end
 
     --駆動系
@@ -692,10 +688,11 @@ function onTick()
             end
 
             --差分へ
-            yawDiff = YAW_LIMIT_ENABLE and (stabiYaw - currentYaw) or same_rotation(stabiYaw - currentYaw)
+            yawDiff = YAW_LIMIT_ENABLE and (clamp(stabiYaw, MIN_YAW, MAX_YAW) - currentYaw) or same_rotation(stabiYaw - currentYaw)
+            pitchDiff = PITCH_LIMIT_ENABLE and (clamp(stabiPitch, MIN_PITCH, MAX_PITCH) - currentPitch) or stabiPitch - currentPitch
 
             --PID
-            stabiPitchV, stabiPitchES, stabiPitchEP = PID(STABI_P, STABI_I, STABI_D, stabiPitch, currentPitch, stabiPitchES, stabiPitchEP, -MAX_SPEED_GAIN, MAX_SPEED_GAIN)
+            stabiPitchV, stabiPitchES, stabiPitchEP = PID(STABI_P, STABI_I, STABI_D, 0, -pitchDiff, stabiPitchES, stabiPitchEP, -MAX_SPEED_GAIN, MAX_SPEED_GAIN)
             stabiYawV, stabiYawES, stabiYawEP = PID(STABI_P, STABI_I, STABI_D, 0, -yawDiff, stabiYawES, stabiYawEP, -MAX_SPEED_GAIN, MAX_SPEED_GAIN)
 
             --誤差修正用のPIDパラメータ
@@ -707,23 +704,15 @@ function onTick()
         end
 
         --差分へ
-        yawDiff = YAW_LIMIT_ENABLE and (idealYaw - currentYaw) or same_rotation(idealYaw - currentYaw)
+        yawDiff = YAW_LIMIT_ENABLE and (clamp(idealYaw, MIN_YAW, MAX_YAW) - currentYaw) or same_rotation(idealYaw - currentYaw)
+        pitchDiff = PITCH_LIMIT_ENABLE and (clamp(idealPitch, MIN_PITCH, MAX_PITCH) - currentPitch) or idealPitch - currentPitch
 
         --PID
-        pitchV, pitchES, pitchEP = PID(P, I, D, idealPitch, currentPitch, pitchES, pitchEP, -MAX_SPEED_GAIN, MAX_SPEED_GAIN)
+        pitchV, pitchES, pitchEP = PID(P, I, D, 0, -pitchDiff, pitchES, pitchEP, -MAX_SPEED_GAIN, MAX_SPEED_GAIN)
         yawV, yawES, yawEP = PID(P, I, D, 0, -yawDiff, yawES, yawEP, -MAX_SPEED_GAIN, MAX_SPEED_GAIN)
 
         pitchV = stabiPitchV + pitchV
         yawV = stabiYawV + yawV
-
-        --ピッチ角制限
-        if PITCH_LIMIT_ENABLE then
-            pitchV = limit_rotation(pitchV, same_rotation(currentPitch), MIN_PITCH, MAX_PITCH)
-        end
-        --ヨー角制限
-        if YAW_LIMIT_ENABLE then
-            yawV = limit_rotation(yawV, same_rotation(currentYaw), MIN_YAW, MAX_YAW)
-        end
 
         --ギア補正
         pitchV = pitchV*PITCH_PIVOT
