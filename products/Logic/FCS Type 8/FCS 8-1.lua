@@ -13,28 +13,23 @@
 do
     ---@type Simulator -- Set properties and screen sizes here - will run once when the script is loaded
     simulator = simulator
-    simulator:setScreen(1, "3x3")
-    simulator:setProperty("ExampleNumberProperty", 123)
+
+    simulator:setProperty("FPS view offset", "0,0.25,1.45")
+    simulator:setProperty("TPS view offset", "0,0.25,2")
+    simulator:setProperty("Laser offset 1", "-0.5,0.5,-0.25")
+    simulator:setProperty("Laser offset 2", "-0.25,0.5,-0.25")
+    simulator:setProperty("Laser offset 3", "-0,0.5,-0.25")
+    simulator:setProperty("Laser offset 4", "0.25,0.5,-0.25")
+
+    for i = 1, 32 do
+        simulator:setInputNumber(i, 0)
+    end
 
     -- Runs every tick just before onTick; allows you to simulate the inputs changing
     ---@param simulator Simulator Use simulator:<function>() to set inputs etc.
     ---@param ticks     number Number of ticks since simulator started
     function onLBSimulatorTick(simulator, ticks)
 
-        -- touchscreen defaults
-        local screenConnection = simulator:getTouchScreen(1)
-        simulator:setInputBool(1, screenConnection.isTouched)
-        simulator:setInputNumber(1, screenConnection.width)
-        simulator:setInputNumber(2, screenConnection.height)
-        simulator:setInputNumber(3, screenConnection.touchX)
-        simulator:setInputNumber(4, screenConnection.touchY)
-
-        -- NEW! button/slider options from the UI
-        simulator:setInputBool(31, simulator:getIsClicked(1))       -- if button 1 is clicked, provide an ON pulse for input.getBool(31)
-        simulator:setInputNumber(31, simulator:getSlider(1))        -- set input 31 to the value of slider 1
-
-        simulator:setInputBool(32, simulator:getIsToggled(2))       -- make button 2 a toggle, for input.getBool(32)
-        simulator:setInputNumber(32, simulator:getSlider(2) * 50)   -- set input 32 to the value from slider 2 * 50
     end;
 end
 ---@endsection
@@ -67,6 +62,9 @@ TGT_ALT = 0.1       --標的の高さがn[m]以上で目標と判定
 TGT_PRED_DELAY = 0  --n[tick]後の未来位置を予測
 TGT_DEL_TICK = 30   --n[tick]以上前のデータは削除
 TGT_RADIUS_GAIN = 1.05
+
+alpha = 0.1 --α-βフィルタのα
+beta = 0.1  --α-βフィルタのβ
 
 --関数
 do
@@ -266,25 +264,38 @@ do
         return (targetX - gndX)*nomX + (targetY - gndY)*nomY + (targetZ - gndZ)*nomZ
     end
 
-    --x(t) = at + bを最小二乗法で求める
+    --x(t) = at + bを最小二乗法で求める(ABFに換装予定、後に消去する)
     --ft = {{t = tick, x = X}, ...}
     function leastSquaresMethod(ft)
-        local a, b, sumT, sumX, sumTX, sumT2 = 0, 0, 0, 0, 0, 0
-        local maxminT = ft[1].t and (ft[#ft].t - ft[1].t)
-        if #ft < 2 or maxminT < 30 then
-            a = 0
-            b = ft[#ft].x
+        --最小2サンプル又は30tick以上のデータ量であること
+        if #ft < 2 or (ft[1].t and ft[#ft].t - ft[1].t) < 30 then
+            return 0, ft[#ft].x or 0
         else
+            sumT, sumT2, sumX, sumTX = 0, 0, 0, 0
             for _, FT in pairs(ft) do
                 sumT = sumT + FT.t
+                sumT2 = sumT2 + FT.t*FT.t
                 sumX = sumX + FT.x
                 sumTX = sumTX + FT.t*FT.x
-                sumT2 = sumT2 + FT.t^2
             end
-            a = (#ft*sumTX - sumT*sumX)/(#ft*sumT2 - sumT*sumT)
-            b = (sumT2*sumX - sumTX*sumT)/(#ft*sumT2 - sumT*sumT)
+            det = #ft*sumT2 - sumT*sumT
+            a = (#ft*sumTX - sumT*sumX)/det
+            b = (sumT2*sumX - sumTX*sumT)/det
+            return a or 0, b or 0
         end
-        return a or 0, b or 0
+    end
+
+    --α-βフィルタ更新(z: 観測値, vx: 予測速度, x: 予測位置)
+    function ABFUpdate(z, vx, x)
+        residual = z - x
+        vx = vx + beta*residual
+        x = x + alpha*residual
+        return vx, x
+    end
+
+    --α-βフィルタ予測
+    function APFPredict(vx, x)
+        return x + vx
     end
 end
 
@@ -412,59 +423,46 @@ function onTick()
                 gndX1, gndY1, gndZ1 = las2Wx + 1, las2Wy, las2Wz
                 nomX, nomY, nomZ = 0, 0, 1
                 TGTPredX, TGTPredY, TGTPredZ = las1Wx, las1Wy, las1Wz
-                targetRadiusZ = TGT_RADIUS/2
-                targetRadiusXY = TGT_RADIUS
-                hitCntZ = 0
-                hitCntXY = 0
+                TGTRad0 = TGT_RADIUS
+                TGTRad45 = TGT_RADIUS*0.6
+                TGTRad90 = TGT_RADIUS*0.5
+                TGTRad135 = TGT_RADIUS*0.6
+                isHit0 = false
+                isHit45 = false
+                isHit90 = false
+                isHit135 = false
             --追尾終了判定
-            elseif (isTracking and trackPulse) or las1Dist == 0 or (#TGTx < 2 and TGTx[1].t < trackT - TGT_DEL_TICK) then
+            elseif (isTracking and trackPulse) or las1Dist == 0  or (#TGTx < 2 and TGTx[1].t < trackT - TGT_DEL_TICK) then
                 isTracking = false
             end
 
             --追尾中
             if isTracking then
-                --ターゲットか判定
-                las1Alt = calGndAlt(las1Wx, las1Wy, las1Wz, gndX, gndY, gndZ, nomX, nomY, nomZ)
-                las2Alt = calGndAlt(las2Wx, las2Wy, las2Wz, gndX, gndY, gndZ, nomX, nomY, nomZ)
-                las3Alt = calGndAlt(las3Wx, las3Wy, las3Wz, gndX, gndY, gndZ, nomX, nomY, nomZ)
-                las4Alt = calGndAlt(las4Wx, las4Wy, las4Wz, gndX, gndY, gndZ, nomX, nomY, nomZ)
-                las1Error = distance3(las1Wx - TGTPredX, las1Wy - TGTPredY, las1Wz - TGTPredZ)
-                las2Error = distance3(las2Wx - TGTPredX, las2Wy - TGTPredY, las2Wz - TGTPredZ)
-                las3Error = distance3(las3Wx - TGTPredX, las3Wy - TGTPredY, las3Wz - TGTPredZ)
-                las4Error = distance3(las4Wx - TGTPredX, las4Wy - TGTPredY, las4Wz - TGTPredZ)
+                --レーザ座標を判定し、ターゲット位置を保存
+                function addData(Wx, Wy, Wz)
+                    alt = calGndAlt(Wx, Wy, Wz, gndX, gndY, gndZ, nomX, nomY, nomZ)
+                    error = distance3(Wx - TGTPredX, Wy - TGTPredY, Wz - TGTPredZ)
+                    isHit = error < (TGTRad0 + TGTRad90)*2 and alt > TGT_ALT
+                    if alt > TGT_ALT then
+                        table.insert(TGTx, {t = trackT, x = Wx})
+                        table.insert(TGTy, {t = trackT, x = Wy})
+                        table.insert(TGTz, {t = trackT, x = Wz})
+                    end
+                    return isHit
+                end
 
-                --ヒットしているか判定
-                errorRange = (targetRadiusZ + targetRadiusXY)
-                las1Hit = las1Error < errorRange and las1Alt > TGT_ALT
-                las2Hit = las2Error < errorRange and las2Alt > TGT_ALT
-                las3Hit = las3Error < errorRange and las3Alt > TGT_ALT
-                las4Hit = las4Error < errorRange and las4Alt > TGT_ALT
+                --ヒットしたらデータを保存
+                las1Hit = addData(las1Wx, las1Wy, las1Wz)
+                las2Hit = addData(las2Wx, las2Wy, las2Wz)
+                las3Hit = addData(las3Wx, las3Wy, las3Wz)
+                las4Hit = addData(las4Wx, las4Wy, las4Wz)
 
-                --ターゲットに当たったら、情報を保存して最小二乗法
+                --最小二乗法
                 do
-                    --レーザー２用
-                    if las2Hit then
-                        TGTx[#TGTx + 1] = {t = trackT, x = las2Wx}
-                        TGTy[#TGTy + 1] = {t = trackT, x = las2Wy}
-                    end
-                    --レーザー３用
-                    if las3Hit then
-                        TGTx[#TGTx + 1] = {t = trackT, x = las3Wx}
-                        TGTy[#TGTy + 1] = {t = trackT, x = las3Wy}
-                    end
-                    --レーザー４用
-                    if las4Hit then
-                        TGTx[#TGTx + 1] = {t = trackT, x = las4Wx}
-                        TGTy[#TGTy + 1] = {t = trackT, x = las4Wy}
-                        TGTz[#TGTz + 1] = {t = trackT, x = las4Wz}
-                    end
-
                     --一定時間以上前のデータ削除
                     while #TGTx > 1 and TGTx[1].t < trackT - TGT_DEL_TICK do
                         table.remove(TGTx, 1)
                         table.remove(TGTy, 1)
-                    end
-                    while #TGTz > 1 and TGTz[1].t < trackT - TGT_DEL_TICK do
                         table.remove(TGTz, 1)
                     end
 
@@ -480,84 +478,86 @@ function onTick()
                     TGTPredVz = a
                 end
 
-                function calPiYa(x, y, z, Px, Py, Pz)
-                    return stabilizer2(Px, Py, Pz, lasQt, lasPvx, lasPvy, lasPvz, lasPrvx, lasPrvy, lasPrvz, TGTPredX + x, TGTPredY + y, TGTPredZ + z, TGTPredVx, TGTPredVy, TGTPredVz, TGTPredX + x, TGTPredY + y, TGTPredZ + z, LASER_STABI_T)
+                function calPiYa(x, z, Px, Py, Pz)
+                    --照準面座標系のクォータニオンを生成(中心に自機、標的が正面、ロール角0°の座標系)
+                    aimYaw = math.atan(TGTPredX - Px, TGTPredY - Pz)
+                    aimPitch = math.atan(TGTPredZ - Py, math.sqrt((TGTPredX - Px)^2 + (TGTPredY - Pz)^2))
+                    aimQt = mulQt({math.sin(aimPitch/2), 0, 0, math.cos(aimPitch/2)}, {0, 0, math.sin(aimYaw/2), math.cos(aimYaw/2)})
+                    Wx, Wy, Wz = local2World(x, 0, z, TGTPredX, TGTPredZ, TGTPredY, aimQt)
+                    return stabilizer2(Px, Py, Pz, lasQt, lasPvx, lasPvy, lasPvz, lasPrvx, lasPrvy, lasPrvz, Wx, Wy, Wz, TGTPredVx, TGTPredVy, TGTPredVz, Wx, Wy, Wz, LASER_STABI_T)
                 end
 
-                --照準面座標系のクォータニオンを生成(中心に自機、標的が正面、ロール角0°の座標系)
-                aimYaw = math.atan(TGTPredX - lasPx, TGTPredY - lasPz)
-                aimPitch = math.atan(TGTPredZ - lasPy, math.sqrt((TGTPredX - lasPx)^2 + (TGTPredY - lasPz)^2))
-                aimQt = mulQt({math.sin(aimPitch/2), 0, 0, math.cos(aimPitch/2)}, {0, 0, math.sin(aimYaw/2), math.cos(aimYaw/2)})
-
-
                 --地面基準照射点を計算
-                -- Z = -(半径)*2, XY = 自分と目標の直線方向にXY平面上で(半径)*2離れた位置
-                gndOfstZ = -targetRadiusZ*2
-                theta = math.atan(lasPz - losWy, lasPx - losWx)
-                gndOfstX = math.cos(theta)*targetRadiusXY*2
-                gndOfstY = math.sin(theta)*targetRadiusXY*2
+                -- Z = -(半径*2)
+                gndOfstZ = -TGTRad90*2
 
-                if trackT == 0 then
-                    las1pitch, las1yaw = calPiYa(gndOfstX + 0.1, gndOfstY, gndOfstZ, las1Px, las1Py, las1Pz)
-                    las2pitch, las2yaw = calPiYa(gndOfstX, gndOfstY + 0.1, gndOfstZ, las2Px, las2Py, las2Pz)
-                    gndX, gndY, gndZ = las2Wx, las2Wy, las2Wz
-                else
-                    --レーザー１は地面
-                    if trackT%3 == 0 then   --地面基準
-                        las1pitch, las1yaw = calPiYa(0, 0, GND_OFST, las1Px, las1Py, las1Pz)
-                    elseif trackT%3 == 1 then   --地面ベクトル１
-                        las1pitch, las1yaw = calPiYa(0.1, 0, GND_OFST, las1Px, las1Py, las1Pz)
-                    else                        --地面ベクトル２
-                        las1pitch, las1yaw = calPiYa(0, 0.1, GND_OFST, las1Px, las1Py, las1Pz)
-                    end
-                    --レーザー２は±Xの２箇所、レーザー３は±Yの２箇所、レーザー４は±Zの２箇所
-                    if trackT%2 == 0 then       -- +X+Y+Z
-                        las2pitch, las2yaw = calPiYa(targetRadiusXY, 0, 0, las2Px, las2Py, las2Pz)
-                        las3pitch, las3yaw = calPiYa(0, targetRadiusXY, 0, las3Px, las3Py, las3Pz)
-                        las4pitch, las4yaw = calPiYa(0, 0, targetRadiusZ, las4Px, las4Py, las4Pz)
-                    else                        -- -X-Y-Z
-                        las2pitch, las2yaw = calPiYa(-targetRadiusXY, 0, 0, las2Px, las2Py, las2Pz)
-                        las3pitch, las3yaw = calPiYa(0, -targetRadiusXY, 0, las3Px, las3Py, las3Pz)
-                        las4pitch, las4yaw = calPiYa(0, 0, -targetRadiusZ, las4Px, las4Py, las4Pz)
-                    end
+                --レーザー１は地面、中心
+                if trackT%4 == 0 then   --地面基準
+                    las1pitch, las1yaw = calPiYa(0, gndOfstZ, las1Px, las1Py, las1Pz)
+                elseif trackT%4 == 1 then   --地面ベクトル１
+                    las1pitch, las1yaw = calPiYa(0.1, gndOfstZ, las1Px, las1Py, las1Pz)
+                elseif trackT%4 == 2 then   --地面ベクトル２
+                    las1pitch, las1yaw = calPiYa(0, gndOfstZ - 0.1, las1Px, las1Py, las1Pz)
+                else                        --標的の中心
+                    las1pitch, las1yaw = calPiYa(0, 0, las1Px, las1Py, las1Pz)
+                end
+                --レーザー２は±X, ±X±Zの4箇所、レーザー３は±Z, ∓X±Zの4箇所(照準面座標系)
+                if trackT%4 == 0 then       -- +0, +90
+                    las2pitch, las2yaw = calPiYa(TGTRad0, 0, las2Px, las2Py, las2Pz)
+                    las3pitch, las3yaw = calPiYa(0, TGTRad90, las3Px, las3Py, las3Pz)
+                elseif trackT%4 == 1 then   -- -0 -90
+                    las2pitch, las2yaw = calPiYa(-TGTRad0, 0, las2Px, las2Py, las2Pz)
+                    las3pitch, las3yaw = calPiYa(0, -TGTRad90, las3Px, las3Py, las3Pz)
+                elseif trackT%4 == 2 then   -- +45 +135
+                    las2pitch, las2yaw = calPiYa(TGTRad45, TGTRad45, las2Px, las2Py, las2Pz)
+                    las3pitch, las3yaw = calPiYa(TGTRad135, -TGTRad135, las3Px, las3Py, las3Pz)
+                else                        -- -45 -135
+                    las2pitch, las2yaw = calPiYa(-TGTRad45, -TGTRad45, las2Px, las2Py, las2Pz)
+                    las3pitch, las3yaw = calPiYa(-TGTRad135, TGTRad135, las3Px, las3Py, las3Pz)
                 end
 
                 --地面とターゲットサイズ更新
                 if trackT > LASER_DELAY then
-                    if (trackT - LASER_DELAY)%3 == 0 then
+                    if (trackT - LASER_DELAY)%4 == 0 then
                         --基準座標
                         gndX, gndY, gndZ = las1Wx, las1Wy, las1Wz
-                    elseif (trackT - LASER_DELAY)%3 == 1 then
+                    elseif (trackT - LASER_DELAY)%4 == 1 then
                         --地面座標１を保持
                         gndX1, gndY1, gndZ1 = las1Wx, las1Wy, las1Wz
-                    else
+                    elseif (trackT - LASER_DELAY)%4 == 2 then
                         --地面座標２と地面座標１を使い、法線ベクトルを算出
                         nomX, nomY, nomZ = calNomVec(las1Wx - gndX, las1Wy - gndY, las1Wz - gndZ, gndX1 - gndX, gndY1 - gndY, gndZ1 - gndZ)
                     end
 
-                    --ヒット率
-                    if las2Hit then
-                        hitCntXY = hitCntXY + 1
-                    end
-                    if las3Hit then
-                        hitCntXY = hitCntXY + 1
-                    end
-                    if las4Hit then
-                        hitCntZ = hitCntZ + 1
-                    end
-                    if (trackT - LASER_DELAY)%2 == 1 then
-                        if hitCntXY >= 3 then
-                            targetRadiusXY = targetRadiusXY*TGT_RADIUS_GAIN
-                        else
-                            targetRadiusXY = targetRadiusXY/TGT_RADIUS_GAIN
+                    --対角線ヒット率に基づき半径を更新(0ヒットならば縮小、2ヒットならば拡大)
+                    if (trackT - LASER_DELAY)%4 == 0 then
+                        isHit0 = las2Hit
+                        isHit90 = las3Hit
+                    elseif (trackT - LASER_DELAY)%4 == 1 then
+                        if isHit0 and las2Hit then
+                            TGTRad0 = TGTRad0*TGT_RADIUS_GAIN
+                        elseif not isHit0 and not las2Hit then
+                            TGTRad0 = TGTRad0/TGT_RADIUS_GAIN
                         end
-                        if hitCntZ == 2 then
-                            targetRadiusZ = targetRadiusZ*TGT_RADIUS_GAIN
-                        elseif hitCntZ == 0 then
-                            targetRadiusZ = targetRadiusZ/TGT_RADIUS_GAIN
+                        if isHit90 and las3Hit then
+                            TGTRad90 = TGTRad90*TGT_RADIUS_GAIN
+                        elseif not isHit90 and not las3Hit then
+                            TGTRad90 = TGTRad90/TGT_RADIUS_GAIN
                         end
-                        hitCntXY = 0
-                        hitCntZ = 0
+                    elseif (trackT - LASER_DELAY)%4 == 2 then
+                        isHit45 = las2Hit
+                        isHit135 = las3Hit
+                    else
+                        if isHit45 and las2Hit then
+                            TGTRad45 = TGTRad45*TGT_RADIUS_GAIN
+                        elseif not isHit45 and not las2Hit then
+                            TGTRad45 = TGTRad45/TGT_RADIUS_GAIN
+                        end
+                        if isHit135 and las3Hit then
+                            TGTRad135 = TGTRad135*TGT_RADIUS_GAIN
+                        elseif not isHit135 and not las3Hit then
+                            TGTRad135 = TGTRad135/TGT_RADIUS_GAIN
+                        end
                     end
                 elseif trackT == LASER_DELAY then
                     nomX, nomY, nomZ = calNomVec(las1Wx - gndX, las1Wy - gndY, las1Wz - gndZ, las2Wx - gndX, las2Wy - gndY, las2Wz - gndZ)
@@ -579,8 +579,8 @@ function onTick()
                     end
 
 
-                    OUN(23, targetRadiusZ)
-                    OUN(24, targetRadiusXY)
+                    OUN(23, TGTRad90)
+                    OUN(24, TGTRad0)
                 end
 
                 trackT = trackT + 1
