@@ -1,7 +1,0 @@
-# すべての生成物・設定を除外
-.vscode/
-_build/
-
-# microcontrollers配下はLuaだけ管理
-microcontrollers/**
-!microcontrollers/**/*.lua
