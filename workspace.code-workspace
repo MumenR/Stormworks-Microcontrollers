@@ -1,252 +1,28 @@
 {
 	"folders": [
 		{
-			"name": "autopilot V1",
-			"path": "products/Logic/autopilot V1"
+			"name": "combat system",
+			"path": "src/combat system"
 		},
 		{
-			"name": "AVE",
-			"path": "products/Logic/AVE"
+			"name": "weapons",
+			"path": "src/weapons"
 		},
 		{
-			"name": "Ballistic Calculator V1",
-			"path": "products/Logic/Ballistic Calculator V1"
+			"name": "display system",
+			"path": "src/display system"
 		},
 		{
-			"name": "Ballistic Calculator V2",
-			"path": "products/Logic/Ballistic Calculator V2"
+			"name": "vehicle control",
+			"path": "src/vehicle control"
 		},
 		{
-			"name": "Ballistic Calculator V3",
-			"path": "products/Logic/Ballistic Calculator V3"
+			"name": "others",
+			"path": "src/others"
 		},
 		{
-			"name": "Ballistic Calculator V4",
-			"path": "products/Logic/Ballistic Calculator V4"
-		},
-		{
-			"name": "Ballistic Calculator V5",
-			"path": "products/Logic/Ballistic Calculator V5"
-		},
-		{
-			"name": "Battery Remaining V1",
-			"path": "products/Logic/Battery Remaining V1"
-		},
-		{
-			"name": "Camera Controller V1",
-			"path": "products/Logic/Camera Controller V1"
-		},
-		{
-			"name": "Caterpillar Controller V1",
-			"path": "products/Logic/Caterpillar Controller V1"
-		},
-		{
-			"name": "Camera Controller V2",
-			"path": "products/Logic/Camera Controller V2"
-		},
-		{
-			"name": "CIWS Type 0",
-			"path": "products/Logic/CIWS Type 0"
-		},
-		{
-			"name": "Configurable HUD v3.3",
-			"path": "products/Logic/Configurable HUD v3.3"
-		},
-		{
-			"name": "CSV Sender v1.0.0",
-			"path": "products/Logic/CSV Sender v1.0.0"
-		},
-		{
-			"name": "Damege Controller V1",
-			"path": "products/Logic/Damege Controller V1"
-		},
-		{
-			"name": "depth survey'",
-			"path": "products/Logic/depth survey'"
-		},
-		{
-			"name": "digital clock",
-			"path": "products/Logic/digital clock"
-		},
-		{
-			"name": "Digital indicators V1",
-			"path": "products/Logic/Digital indicators V1"
-		},
-		{
-			"name": "Engine Controller V4",
-			"path": "products/Logic/Engine Controller V4"
-		},
-		{
-			"name": "Engine Controller V5",
-			"path": "products/Logic/Engine Controller V5"
-		},
-		{
-			"name": "FCS Exchanger V1",
-			"path": "products/Logic/FCS Exchanger V1"
-		},
-		{
-			"name": "FCS Type 2",
-			"path": "products/Logic/FCS Type 2"
-		},
-		{
-			"name": "FCS Type 3",
-			"path": "products/Logic/FCS Type 3"
-		},
-		{
-			"name": "FCS Type 4",
-			"path": "products/Logic/FCS Type 4"
-		},
-		{
-			"name": "FCS Type 5",
-			"path": "products/Logic/FCS Type 5"
-		},
-		{
-			"name": "FCS Type 6",
-			"path": "products/Logic/FCS Type 6"
-		},
-		{
-			"name": "FCS Type 7",
-			"path": "products/Logic/FCS Type 7"
-		},
-		{
-			"name": "FCS Type 8",
-			"path": "products/Logic/FCS Type 8"
-		},
-		{
-			"name": "Fuel crusing distance meter V1",
-			"path": "products/Logic/Fuel crusing distance meter V1"
-		},
-		{
-			"name": "Fuel crusing distance meter V2",
-			"path": "products/Logic/Fuel crusing distance meter V2"
-		},
-		{
-			"name": "HMD V1",
-			"path": "products/Logic/HMD V1"
-		},
-		{
-			"name": "HMD V2",
-			"path": "products/Logic/HMD V2"
-		},
-		{
-			"name": "HMD V3",
-			"path": "products/Logic/HMD V3"
-		},
-		{
-			"name": "HMD V4",
-			"path": "products/Logic/HMD V4"
-		},
-		{
-			"name": "Hydrofoil Controller V1",
-			"path": "products/Logic/Hydrofoil Controller V1"
-		},
-		{
-			"name": "ICBM Type 0",
-			"path": "products/Logic/ICBM Type 0"
-		},
-		{
-			"name": "Map V1",
-			"path": "products/Logic/Map V1"
-		},
-		{
-			"name": "Map V2",
-			"path": "products/Logic/Map V2"
-		},
-		{
-			"name": "Map V3",
-			"path": "products/Logic/Map V3"
-		},
-		{
-			"name": "Moduler engine generator V3",
-			"path": "products/Logic/Moduler engine generator V3"
-		},
-		{
-			"name": "Multifunction Display V1",
-			"path": "products/Logic/Multifunction Display V1"
-		},
-		{
-			"name": "Multifunction Display V2",
-			"path": "products/Logic/Multifunction Display V2"
-		},
-		{
-			"name": "Oxygen concentration meter V1",
-			"path": "products/Logic/Oxygen concentration meter V1"
-		},
-		{
-			"name": "Plane controller V2",
-			"path": "products/Logic/Plane controller V2"
-		},
-		{
-			"name": "Screw controller V1",
-			"path": "products/Logic/Screw controller V1"
-		},
-		{
-			"name": "SM Type 1",
-			"path": "products/Logic/SM Type 1"
-		},
-		{
-			"name": "SM Type 2",
-			"path": "products/Logic/SM Type 2"
-		},
-		{
-			"name": "SM Type 3",
-			"path": "products/Logic/SM Type 3"
-		},
-		{
-			"name": "Sonar Azimuth",
-			"path": "products/Logic/Sonar Azimuth"
-		},
-		{
-			"name": "Spd and Alt display V2",
-			"path": "products/Logic/Spd and Alt display V2"
-		},
-		{
-			"name": "Spd and Alt disolay V3",
-			"path": "products/Logic/Spd and Alt disolay V3"
-		},
-		{
-			"name": "SR Type １",
-			"path": "products/Logic/SR Type １"
-		},
-		{
-			"name": "SR Type ２",
-			"path": "products/Logic/SR Type ２"
-		},
-		{
-			"name": "SR Type ３",
-			"path": "products/Logic/SR Type ３"
-		},
-		{
-			"name": "Sub Hatch Controller V1",
-			"path": "products/Logic/Sub Hatch Controller V1"
-		},
-		{
-			"name": "Sub Stabilizer V1",
-			"path": "products/Logic/Sub Stabilizer V1"
-		},
-		{
-			"name": "Tank Stand V1",
-			"path": "products/Logic/Tank Stand V1"
-		},
-		{
-			"name": "test",
-			"path": "products/Logic/test"
-		},
-		{
-			"name": "Test Logic",
-			"path": "products/Logic/Test Logic"
-		},
-		{
-			"name": "TFS V1",
-			"path": "products/Logic/TFS V1"
-		},
-		{
-			"name": "TP Type 1",
-			"path": "products/Logic/TP Type 1"
-		},
-		{
-			"name": "VLS Mk.10",
-			"path": "products/Logic/VLS Mk.10"
+			"name": "libs",
+			"path": "libs"
 		}
 	],
 	"settings": {
@@ -268,7 +44,7 @@
 		"workbench.tree.enableStickyScroll": true,
 		"lifeboatapi.stormworks.user.githubLink": "https://github.com/MumenR/Stormworks-Microcontrollers",
 		"lifeboatapi.stormworks.libs.libraryPaths": [
-			"C:\\Users\\yosuk\\iCloudDrive\\ドキュメント\\Stormworks\\Microcontrollers\\products\\Logic"
+    		"src/libs"
 		],
 		"lua.debug.variables.showIntegerAsHex": false
 	}

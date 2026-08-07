@@ -1,0 +1,252 @@
+-- ============================================================================
+-- 1. ベクトル・クォータニオンの基本演算関数
+-- ============================================================================
+function v_add(a, b)
+    return {a[1]+b[1], a[2]+b[2], a[3]+b[3]}
+end
+function v_sub(a, b)
+    return {a[1]-b[1], a[2]-b[2], a[3]-b[3]}
+end
+function v_mul(a, s)
+    return {a[1]*s, a[2]*s, a[3]*s}
+end
+function v_dot(a, b)
+    return a[1]*b[1] + a[2]*b[2] + a[3]*b[3]
+end
+function v_cross(a, b)
+    return {a[2]*b[3] - a[3]*b[2], a[3]*b[1] - a[1]*b[3], a[1]*b[2] - a[2]*b[1]}
+end
+function v_mag(a)
+    return math.sqrt(v_dot(a, a))
+end
+function v_norm(a,m)
+    m = v_mag(a)
+    return m > 0 and v_mul(a, 1/m) or {0, 0, 0}
+end
+
+-- クォータニオンの積 (q1 * q2)
+local function q_mul(q1, q2)
+    return {
+        q1[1]*q2[1] - q1[2]*q2[2] - q1[3]*q2[3] - q1[4]*q2[4],
+        q1[1]*q2[2] + q1[2]*q2[1] + q1[3]*q2[4] - q1[4]*q2[3],
+        q1[1]*q2[3] - q1[2]*q2[4] + q1[3]*q2[1] + q1[4]*q2[2],
+        q1[1]*q2[4] + q1[2]*q2[3] - q1[3]*q2[2] + q1[4]*q2[1]
+    }
+end
+
+-- クォータニオンの正規化
+local function q_norm(q)
+    local m = math.sqrt(q[1]^2 + q[2]^2 + q[3]^2 + q[4]^2)
+    return m > 0 and {q[1]/m, q[2]/m, q[3]/m, q[4]/m} or {1, 0, 0, 0}
+end
+
+-- ベクトルをクォータニオンで回転
+local function q_rot_vec(q, v)
+    local q_v = {0, v[1], v[2], v[3]}
+    local q_conj = {q[1], -q[2], -q[3], -q[4]}
+    local res = q_mul(q_mul(q, q_v), q_conj)
+    return {res[2], res[3], res[4]}
+end
+
+-- 【NEW】2つのベクトル間の最短回転を表すクォータニオンを生成
+local function q_from_to(u, v)
+    local dot = v_dot(u, v)
+    if dot < -0.999999 then
+        return {0, 1, 0, 0} -- 180度反転（X軸周り）
+    end
+    local cross = v_cross(u, v)
+    -- 最適化されたハーフアングル公式
+    return q_norm({1 + dot, cross[1], cross[2], cross[3]})
+end
+
+-- 3x3行列の連立方程式を解く (クラメルの公式)
+local function solve_3x3(A, b)
+    local det = A[1][1]*(A[2][2]*A[3][3] - A[2][3]*A[3][2])
+              - A[1][2]*(A[2][1]*A[3][3] - A[2][3]*A[3][1])
+              + A[1][3]*(A[2][1]*A[3][2] - A[2][2]*A[3][1])
+    if math.abs(det) < 1e-12 then return {0, 0, 0} end
+    local inv = 1.0 / det
+    return {
+        (b[1]*(A[2][2]*A[3][3]-A[2][3]*A[3][2]) - A[1][2]*(b[2]*A[3][3]-A[2][3]*b[3]) + A[1][3]*(b[2]*A[3][2]-A[2][2]*b[3])) * inv,
+        (A[1][1]*(b[2]*A[3][3]-A[2][3]*b[3]) - b[1]*(A[2][1]*A[3][3]-A[2][3]*A[3][1]) + A[1][3]*(A[2][1]*b[3]-b[2]*A[3][1])) * inv,
+        (A[1][1]*(A[2][2]*b[3]-b[2]*A[3][2]) - A[1][2]*(A[2][1]*b[3]-b[2]*A[3][1]) + b[1]*(A[2][1]*A[3][2]-A[2][2]*A[3][1])) * inv
+    }
+end
+
+-- ============================================================================
+-- 2. 環境モデル / 3. シード生成 （前回と同一のため省略・そのまま使えます）
+-- ============================================================================
+function target_trajectory(t)
+    local initial_pos = {0, 0, 7500}
+    local velocity = {0, 0, 0}
+    local current_pos = v_add(initial_pos, v_mul(velocity, t))
+    return current_pos, velocity
+end
+
+function integrate_physics(v0, target_t)
+    local r = {0, 0, 0}
+    local v = {v0[1], v0[2], v0[3]}
+    local g = {0, -30, 0}
+    local drag_coeff = 0.0005*60
+    
+    for i=1,3 do
+      r[i]=v[i]*(1-math.exp(-drag_coeff*target_t))/drag_coeff+(g[i]*(drag_coeff*target_t+math.exp(-drag_coeff*target_t)-1))/drag_coeff^2
+      v[i]=math.exp(-drag_coeff*target_t)*((g[i]*(math.exp(drag_coeff*target_t) - 1))/drag_coeff+v[i])
+    end
+    
+    return r, v
+end
+
+
+local function generate_seed(r_target, g_accel, v0_mag, is_high_angle)
+    local A_coeff = 0.25 * v_dot(g_accel, g_accel)
+    local B_coeff = -(v0_mag^2 + v_dot(r_target, g_accel))
+    local C_coeff = v_dot(r_target, r_target)
+    local D = B_coeff^2 - 4 * A_coeff * C_coeff
+    local t_sq
+    if D < 0 then
+        t_sq = -B_coeff / (2 * A_coeff)
+    else
+        t_sq = is_high_angle and ((-B_coeff + math.sqrt(D)) / (2 * A_coeff)) 
+                              or ((-B_coeff - math.sqrt(D)) / (2 * A_coeff))
+    end
+    if t_sq <= 0 then return nil, nil end
+    local t = math.sqrt(t_sq)
+    local g_term = v_mul(g_accel, 0.5 * t_sq)
+    local v0_vec = v_mul(v_sub(r_target, g_term), 1/t)
+    return v_mul(v_norm(v0_vec), v0_mag), t
+end
+
+-- ============================================================================
+-- 3. 【究極版】グローバル姿勢管理によるブロイデン法ソルバ
+-- ============================================================================
+local function solve_trajectory(v0_seed, t_seed, v0_mag)
+    local max_iter, tol, epsilon = 20,1e-1,1e-3
+    local t_k = t_seed
+    
+    -- 基準フレーム (ローカルフレームにおける正面方向をZ軸とする)
+    local v_base = {0, 0, 1}
+    
+    -- 初期姿勢クォータニオン q_k の生成 (+Z軸から初期推測方向への回転)
+    local v0_norm = v_norm({v0_seed[1], v0_seed[2], v0_seed[3]})
+    local q_k = q_from_to(v_base, v0_norm)
+    
+    local v_k = v_mul(q_rot_vec(q_k, v_base), v0_mag)
+    local r_end, v_end = integrate_physics(v_k, t_k)
+    local rt, vt = target_trajectory(t_k)
+    local F_k = v_sub(r_end, rt)
+    local initial_err = v_mag(F_k)
+    
+    if initial_err < tol then return v_k, t_k, true end
+
+    -- 【初期ヤコビ行列構築の最適化】
+    local half_eps = epsilon * 0.5
+    local sin_eps, cos_eps = math.sin(half_eps), math.cos(half_eps)
+    
+    -- dx摂動 (ローカル+X方向への移動 = ローカル+Y軸周りの回転)
+    local dq1 = {cos_eps, 0, sin_eps, 0}
+    local v_p1 = v_mul(q_rot_vec(q_mul(q_k, dq1), v_base), v0_mag) -- 右から掛けてローカル回転
+    local j1 = v_mul(v_sub(v_sub(integrate_physics(v_p1, t_k), rt), F_k), 1 / epsilon)
+    
+    -- dy摂動 (ローカル+Y方向への移動 = ローカル-X軸周りの回転)
+    local dq2 = {cos_eps, -sin_eps, 0, 0}
+    local v_p2 = v_mul(q_rot_vec(q_mul(q_k, dq2), v_base), v0_mag)
+    local j2 = v_mul(v_sub(v_sub(integrate_physics(v_p2, t_k), rt), F_k), 1 / epsilon)
+    
+    local j3 = v_sub(v_end, vt)
+    local J = { {j1[1], j2[1], j3[1]}, {j1[2], j2[2], j3[2]}, {j1[3], j2[3], j3[3]} }
+
+    -- メインループ
+    for iter = 1, max_iter do
+        local du = solve_3x3(J, {-F_k[1], -F_k[2], -F_k[3]})
+        local dx, dy, dt = du[1], du[2], du[3]
+        local angle_step = math.sqrt(dx^2 + dy^2)
+        
+        
+        local t_next = t_k + dt
+        local theta = math.sqrt(dx^2 + dy^2)
+        local q_next = q_k
+        
+        if theta > 1e-8 then
+            -- 【極限の最適化】外積計算ゼロでローカル回転クォータニオンを生成
+            -- ローカルZ軸(0,0,1)を(dx, dy)方向に傾ける回転軸は (-dy, dx, 0)
+            local half_t = theta * 0.5
+            local sin_t = math.sin(half_t)
+            
+            -- 回転軸を正規化して sin(theta/2) を掛ける
+            local axis_x = (-dy / theta) * sin_t
+            local axis_y = (dx / theta) * sin_t
+            
+            local dq = {math.cos(half_t), axis_x, axis_y, 0}
+            
+            -- 現在の姿勢の右から dq を掛け、ローカルフレーム上で回転させる
+            q_next = q_norm(q_mul(q_k, dq))
+        end
+        
+        local v_next = v_mul(q_rot_vec(q_next, v_base), v0_mag)
+        
+        r_end, v_end = integrate_physics(v_next, t_next)
+        rt, vt = target_trajectory(t_next)
+        local F_next = v_sub(r_end, rt)
+        local err = v_mag(F_next)
+        
+        print(string.format("反復 %d: 誤差 %.4f m (t=%.2f s)", iter, err, t_next))
+        
+        if err < tol then return v_next, t_next, true end
+        if err > 100 * initial_err or t_next <= 0 then return v_next, t_next, false end
+        if math.sqrt(dx^2 + dy^2 + dt^2) < 1e-7 then return v_next, t_next, false end
+        
+        -- ヤコビ行列の更新
+        local J_du = {
+            J[1][1]*du[1] + J[1][2]*du[2] + J[1][3]*du[3],
+            J[2][1]*du[1] + J[2][2]*du[2] + J[2][3]*du[3],
+            J[3][1]*du[1] + J[3][2]*du[2] + J[3][3]*du[3]
+        }
+        local du_dot_du = du[1]^2 + du[2]^2 + du[3]^2
+        
+        for row = 1, 3 do
+            for col = 1, 3 do
+                J[row][col] = J[row][col] + ((F_next[row] - F_k[row] - J_du[row]) * du[col]) / du_dot_du
+            end
+        end
+        
+        q_k, t_k, F_k = q_next, t_next, F_next
+    end
+    
+    return v_mul(q_rot_vec(q_k, v_base), v0_mag), t_k, false
+end
+
+-- ============================================================================
+-- 4. メイン実行プロセス
+-- ============================================================================
+local function main()
+    local v0_mag = 600.0
+    local g_approx = {0, -30, 0}
+    
+    local r0_tgt, _ = target_trajectory(0)
+    local approx_dist = v_mag(r0_tgt)
+    local t_estimate = approx_dist / v0_mag
+    
+    local r_future, _ = target_trajectory(t_estimate)
+    
+    print("近似シードを計算中...")
+    local seed_v0, seed_t = generate_seed(r_future, g_approx, v0_mag, true)
+    
+    if not seed_v0 then
+        print("エラー: 近似シードの生成に失敗しました（到達不能）。")
+        return
+    end
+    
+    print("最適化を開始します...")
+    local final_v, final_t, success = solve_trajectory(seed_v0, seed_t, v0_mag)
+    
+    if success then
+        print("====== 収束成功 ======")
+        print(string.format("到達時間: %.4f 秒", final_t))
+        print(string.format("初速ベクトル: (%.2f, %.2f, %.2f)", final_v[1], final_v[2], final_v[3]))
+    else
+        print("====== 収束失敗 ======")
+    end
+end
+
+main()
