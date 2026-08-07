@@ -271,6 +271,11 @@ do
         x = x + alpha*residual
         return vx, x
     end
+
+    --半径更新
+    function updateRadius(radius, prevHit, currentHit)
+        return (not prevHit and not currentHit) and radius/TGT_RADIUS_GAIN or radius*TGT_RADIUS_GAIN
+    end
 end
 
 t = 0
@@ -289,6 +294,9 @@ trackT = 0
 notHitT = 0
 
 function onTick()
+    alpha, beta = PRN("Alpha"), PRN("Beta")
+
+
     --インプット
     do
         lasPx, lasPy, lasPz = INN(1), INN(2), INN(3)
@@ -406,6 +414,10 @@ function onTick()
                 isHit45 = false
                 isHit90 = false
                 isHit135 = false
+
+                --地面を補足たかどうか
+                isGndExist = las2Dist ~= 0 and las2Dist ~= 4000 and las2Dist < las1Dist
+                
             --追尾終了判定
             elseif (isTracking and trackPulse) or las1Dist == 0 or notHitT > TRC_END_TICK then
                 isTracking = false
@@ -418,7 +430,7 @@ function onTick()
                 function judgeData(Wx, Wy, Wz)
                     alt = calGndAlt(Wx, Wy, Wz, gndX, gndY, gndZ, nomX, nomY, nomZ)
                     error = distance3(Wx - TGTx, Wy - TGTy, Wz - TGTz)
-                    isHit = error < (TGTRad0 + TGTRad90)*2 and alt > TGT_ALT
+                    isHit = error < (TGTRad0 + TGTRad90)*2 and (alt > TGT_ALT or not isGndExist)
                     if isHit then
                         hitN, avgX, avgY, avgZ = hitN + 1, avgX + Wx, avgY + Wy, avgZ + Wz
                     end
@@ -463,30 +475,39 @@ function onTick()
                 -- Z = -(半径*2)
                 gndOfstZ = -TGTRad90*2
 
-                --レーザ１は地面、中心
-                if trackT%4 == 0 then   --地面基準
-                    las1pitch, las1yaw = calPiYa(0, gndOfstZ, las1Px, las1Py, las1Pz)
-                elseif trackT%4 == 1 then   --地面ベクトル１
-                    las1pitch, las1yaw = calPiYa(0.1, gndOfstZ, las1Px, las1Py, las1Pz)
-                elseif trackT%4 == 2 then   --地面ベクトル２
-                    las1pitch, las1yaw = calPiYa(0, gndOfstZ - 0.1, las1Px, las1Py, las1Pz)
-                else                        --標的の中心
-                    las1pitch, las1yaw = calPiYa(0, 0, las1Px, las1Py, las1Pz)
+                --レーザ１は4周期の表にして、分岐の見た目より短い記述へ寄せる
+                if isGndExist then
+                    local p = ({
+                        {0, gndOfstZ},
+                        {0.1, gndOfstZ},
+                        {0, gndOfstZ - 0.1},
+                        {0, 0}
+                    })[trackT%4+1]
+                    las1pitch, las1yaw = calPiYa(p[1], p[2], las1Px, las1Py, las1Pz)
+                else    --地面がないときは、外周8点＋中心
+                    local p = ({
+                        {0, 0},
+                        {TGTRad0, 0},
+                        {-TGTRad0, 0},
+                        {0, TGTRad90},
+                        {0, -TGTRad90},
+                        {TGTRad45, TGTRad45},
+                        {-TGTRad45, -TGTRad45},
+                        {TGTRad135, -TGTRad135},
+                        {-TGTRad135, TGTRad135}
+                    })[trackT%9+1]
+                    las1pitch, las1yaw = calPiYa(p[1], p[2], las1Px, las1Py, las1Pz)
                 end
-                --レーザ２は±X, ±X±Zの4箇所、レーザ３は±Z, ∓X±Zの4箇所(照準面座標系)
-                if trackT%4 == 0 then       -- +0, +90
-                    las2pitch, las2yaw = calPiYa(TGTRad0, 0, las2Px, las2Py, las2Pz)
-                    las3pitch, las3yaw = calPiYa(0, TGTRad90, las3Px, las3Py, las3Pz)
-                elseif trackT%4 == 1 then   -- -0 -90
-                    las2pitch, las2yaw = calPiYa(-TGTRad0, 0, las2Px, las2Py, las2Pz)
-                    las3pitch, las3yaw = calPiYa(0, -TGTRad90, las3Px, las3Py, las3Pz)
-                elseif trackT%4 == 2 then   -- +45 +135
-                    las2pitch, las2yaw = calPiYa(TGTRad45, TGTRad45, las2Px, las2Py, las2Pz)
-                    las3pitch, las3yaw = calPiYa(TGTRad135, -TGTRad135, las3Px, las3Py, las3Pz)
-                else                        -- -45 -135
-                    las2pitch, las2yaw = calPiYa(-TGTRad45, -TGTRad45, las2Px, las2Py, las2Pz)
-                    las3pitch, las3yaw = calPiYa(-TGTRad135, TGTRad135, las3Px, las3Py, las3Pz)
-                end
+
+                --レーザ２/３も同じ4周期に寄せ、座標だけ差し替えて重複を削る
+                local p = ({
+                    {TGTRad0, 0, 0, TGTRad90},
+                    {-TGTRad0, 0, 0, -TGTRad90},
+                    {TGTRad45, TGTRad45, TGTRad135, -TGTRad135},
+                    {-TGTRad45, -TGTRad45, -TGTRad135, TGTRad135}
+                })[trackT%4+1]
+                las2pitch, las2yaw = calPiYa(p[1], p[2], las2Px, las2Py, las2Pz)
+                las3pitch, las3yaw = calPiYa(p[3], p[4], las3Px, las3Py, las3Pz)
 
                 --地面とターゲットサイズ更新
                 if trackT > LASER_DELAY then
@@ -506,30 +527,14 @@ function onTick()
                         isHit0 = las2Hit
                         isHit90 = las3Hit
                     elseif (trackT - LASER_DELAY)%4 == 1 then
-                        if isHit0 and las2Hit then
-                            TGTRad0 = TGTRad0*TGT_RADIUS_GAIN
-                        elseif not isHit0 and not las2Hit then
-                            TGTRad0 = TGTRad0/TGT_RADIUS_GAIN
-                        end
-                        if isHit90 and las3Hit then
-                            TGTRad90 = TGTRad90*TGT_RADIUS_GAIN
-                        elseif not isHit90 and not las3Hit then
-                            TGTRad90 = TGTRad90/TGT_RADIUS_GAIN
-                        end
+                        TGTRad0 = updateRadius(TGTRad0, isHit0, las2Hit)
+                        TGTRad90 = updateRadius(TGTRad90, isHit90, las3Hit)
                     elseif (trackT - LASER_DELAY)%4 == 2 then
                         isHit45 = las2Hit
                         isHit135 = las3Hit
                     else
-                        if isHit45 and las2Hit then
-                            TGTRad45 = TGTRad45*TGT_RADIUS_GAIN
-                        elseif not isHit45 and not las2Hit then
-                            TGTRad45 = TGTRad45/TGT_RADIUS_GAIN
-                        end
-                        if isHit135 and las3Hit then
-                            TGTRad135 = TGTRad135*TGT_RADIUS_GAIN
-                        elseif not isHit135 and not las3Hit then
-                            TGTRad135 = TGTRad135/TGT_RADIUS_GAIN
-                        end
+                        TGTRad45 = updateRadius(TGTRad45, isHit45, las2Hit)
+                        TGTRad135 = updateRadius(TGTRad135, isHit135, las3Hit)
                     end
                 elseif trackT == LASER_DELAY then
                     nomX, nomY, nomZ = calNomVec(las1Wx - gndX, las1Wy - gndY, las1Wz - gndZ, las2Wx - gndX, las2Wy - gndY, las2Wz - gndZ)
