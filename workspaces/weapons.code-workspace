@@ -1,0 +1,32 @@
+{
+	"folders": [
+		{
+			"name": "CIWS Type 0",
+			"path": "../src/weapons/CIWS Type 0"
+		},
+		{
+			"name": "ICBM Type 0",
+			"path": "../src/weapons/ICBM Type 0"
+		},
+		{
+			"name": "SM Type 1",
+			"path": "../src/weapons/SM Type 1"
+		},
+		{
+			"name": "SM Type 2",
+			"path": "../src/weapons/SM Type 2"
+		},
+		{
+			"name": "SM Type 3",
+			"path": "../src/weapons/SM Type 3"
+		},
+		{
+			"name": "TP Type 1",
+			"path": "../src/weapons/TP Type 1"
+		},
+		{
+			"name": "VLS Mk.10",
+			"path": "../src/weapons/VLS Mk.10"
+		}
+	]
+}

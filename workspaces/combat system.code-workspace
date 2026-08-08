@@ -1,0 +1,72 @@
+{
+    "folders": [
+        {
+            "name": "Ballistic Calculator V1",
+            "path": "../src/combat system/Ballistic Calculator V1"
+        },
+        {
+            "name": "Ballistic Calculator V2",
+            "path": "../src/combat system/Ballistic Calculator V2"
+        },
+        {
+            "name": "Ballistic Calculator V3",
+            "path": "../src/combat system/Ballistic Calculator V3"
+        },
+        {
+            "name": "Ballistic Calculator V4",
+            "path": "../src/combat system/Ballistic Calculator V4"
+        },
+        {
+            "name": "Ballistic Calculator V5",
+            "path": "../src/combat system/Ballistic Calculator V5"
+        },
+        {
+            "name": "FCS Exchanger V1",
+            "path": "../src/combat system/FCS Exchanger V1"
+        },
+        {
+            "name": "FCS Type 2",
+            "path": "../src/combat system/FCS Type 2"
+        },
+        {
+            "name": "FCS Type 3",
+            "path": "../src/combat system/FCS Type 3"
+        },
+        {
+            "name": "FCS Type 4",
+            "path": "../src/combat system/FCS Type 4"
+        },
+        {
+            "name": "FCS Type 5",
+            "path": "../src/combat system/FCS Type 5"
+        },
+        {
+            "name": "FCS Type 6",
+            "path": "../src/combat system/FCS Type 6"
+        },
+        {
+            "name": "FCS Type 7",
+            "path": "../src/combat system/FCS Type 7"
+        },
+        {
+            "name": "FCS Type 8",
+            "path": "../src/combat system/FCS Type 8"
+        },
+        {
+            "name": "Sonar Azimuth",
+            "path": "../src/combat system/Sonar Azimuth"
+        },
+        {
+            "name": "SR Type 1",
+            "path": "../src/combat system/SR Type 1"
+        },
+        {
+            "name": "SR Type 2",
+            "path": "../src/combat system/SR Type 2"
+        },
+        {
+            "name": "SR Type 3",
+            "path": "../src/combat system/SR Type 3"
+        }
+    ]
+}

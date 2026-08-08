@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"name": "CSV Sender v1.0.0",
+			"path": "../src/others/CSV Sender v1.0.0"
+		},
+		{
+			"name": "test",
+			"path": "../src/others/test"
+		}
+	],
+	"settings": {}
+}

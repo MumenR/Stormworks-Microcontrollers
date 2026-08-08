@@ -1,0 +1,88 @@
+{
+	"folders": [
+		{
+			"name": "Battery Remaining V1",
+			"path": "../src/display system/Battery Remaining V1"
+		},
+		{
+			"name": "Configurable HUD v3.3",
+			"path": "../src/display system/Configurable HUD v3.3"
+		},
+		{
+			"name": "Damege Controller V1",
+			"path": "../src/display system/Damege Controller V1"
+		},
+		{
+			"name": "depth survey V1",
+			"path": "../src/display system/depth survey V1"
+		},
+		{
+			"name": "digital clock V1",
+			"path": "../src/display system/digital clock V1"
+		},
+		{
+			"name": "Digital indicators V1",
+			"path": "../src/display system/Digital indicators V1"
+		},
+		{
+			"name": "Fuel crusing distance meter V1",
+			"path": "../src/display system/Fuel crusing distance meter V1"
+		},
+		{
+			"name": "Fuel crusing distance meter V2",
+			"path": "../src/display system/Fuel crusing distance meter V2"
+		},
+		{
+			"name": "HMD V1",
+			"path": "../src/display system/HMD V1"
+		},
+		{
+			"name": "HMD V2",
+			"path": "../src/display system/HMD V2"
+		},
+		{
+			"name": "HMD V3",
+			"path": "../src/display system/HMD V3"
+		},
+		{
+			"name": "HMD V4",
+			"path": "../src/display system/HMD V4"
+		},
+		{
+			"name": "Map V1",
+			"path": "../src/display system/Map V1"
+		},
+		{
+			"name": "Map V2",
+			"path": "../src/display system/Map V2"
+		},
+		{
+			"name": "Map V3",
+			"path": "../src/display system/Map V3"
+		},
+		{
+			"name": "Multifunction Display V1",
+			"path": "../src/display system/Multifunction Display V1"
+		},
+		{
+			"name": "Multifunction Display V2",
+			"path": "../src/display system/Multifunction Display V2"
+		},
+		{
+			"name": "Oxygen concentration meter V1",
+			"path": "../src/display system/Oxygen concentration meter V1"
+		},
+		{
+			"name": "Spd and Alt disolay V3",
+			"path": "../src/display system/Spd and Alt disolay V3"
+		},
+		{
+			"name": "Spd and Alt display V2",
+			"path": "../src/display system/Spd and Alt display V2"
+		},
+		{
+			"name": "Tank Stand V1",
+			"path": "../src/display system/Tank Stand V1"
+		}
+	]
+}

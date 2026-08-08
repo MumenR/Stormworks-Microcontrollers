@@ -1,0 +1,4 @@
+# 除外したいディレクトリ
+.vscode/
+_build/
+others/

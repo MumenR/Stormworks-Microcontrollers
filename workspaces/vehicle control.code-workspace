@@ -1,0 +1,52 @@
+{
+	"folders": [
+		{
+			"name": "Autopilot V1",
+			"path": "../src/vehicle control/Autopilot V1"
+		},
+		{
+			"name": "Camera Controller V1",
+			"path": "../src/vehicle control/Camera Controller V1"
+		},
+		{
+			"name": "Camera Controller V2",
+			"path": "../src/vehicle control/Camera Controller V2"
+		},
+		{
+			"name": "Caterpillar Controller V1",
+			"path": "../src/vehicle control/Caterpillar Controller V1"
+		},
+		{
+			"name": "Engine Controller V4",
+			"path": "../src/vehicle control/Engine Controller V4"
+		},
+		{
+			"name": "Engine Controller V5",
+			"path": "../src/vehicle control/Engine Controller V5"
+		},
+		{
+			"name": "Hydrofoil Controller V1",
+			"path": "../src/vehicle control/Hydrofoil Controller V1"
+		},
+		{
+			"name": "Moduler engine generator V3",
+			"path": "../src/vehicle control/Moduler engine generator V3"
+		},
+		{
+			"name": "Plane controller V2",
+			"path": "../src/vehicle control/Plane controller V2"
+		},
+		{
+			"name": "Screw controller V1",
+			"path": "../src/vehicle control/Screw controller V1"
+		},
+		{
+			"name": "Sub Hatch Controller V1",
+			"path": "../src/vehicle control/Sub Hatch Controller V1"
+		},
+		{
+			"name": "Sub Stabilizer V1",
+			"path": "../src/vehicle control/Sub Stabilizer V1"
+		}
+	]
+}
