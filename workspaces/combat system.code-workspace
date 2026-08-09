@@ -67,6 +67,10 @@
         {
             "name": "SR Type 3",
             "path": "../src/combat system/SR Type 3"
+        },
+        {
+            "name": "libs",
+            "path": "../libs"
         }
     ]
 }

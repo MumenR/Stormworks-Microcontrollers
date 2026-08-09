@@ -47,6 +47,10 @@
 		{
 			"name": "Sub Stabilizer V1",
 			"path": "../src/vehicle control/Sub Stabilizer V1"
-		}
+		},
+        {
+            "name": "libs",
+            "path": "../libs"
+        }
 	]
 }

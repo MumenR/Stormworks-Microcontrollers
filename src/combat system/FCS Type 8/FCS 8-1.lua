@@ -66,6 +66,7 @@ TGT_RADIUS_GAIN = 1.05
 alpha = 0.01 --α-βフィルタのα
 beta = 0.01  --α-βフィルタのβ
 
+
 --関数
 do
 
@@ -453,7 +454,9 @@ function onTick()
                         TGTvy, TGTy = ABFUpdate(avgY, TGTvy, TGTy)
                         TGTvz, TGTz = ABFUpdate(avgZ, TGTvz, TGTz)
                         notHitT = 0
+                        nextX, nextY, nextZ = avgX, avgY, avgZ  --次に投射する中心座標
                     else
+                        nextX, nextY, nextZ = TGTx, TGTy, TGTz
                         notHitT = notHitT + 1
                     end
                     --予測
@@ -464,10 +467,10 @@ function onTick()
 
                 function calPiYa(x, z, Px, Py, Pz)
                     --照準面座標系のクォータニオンを生成(中心に自機、標的が正面、ロール角0°の座標系)
-                    aimYaw = math.atan(TGTx - Px, TGTy - Pz)
-                    aimPitch = math.atan(TGTz - Py, math.sqrt((TGTx - Px)^2 + (TGTy - Pz)^2))
+                    aimYaw = math.atan(nextX - Px, nextY - Pz)
+                    aimPitch = math.atan(nextZ - Py, math.sqrt((nextX - Px)^2 + (nextY - Pz)^2))
                     aimQt = mulQt({math.sin(aimPitch/2), 0, 0, math.cos(aimPitch/2)}, {0, 0, math.sin(aimYaw/2), math.cos(aimYaw/2)})
-                    Wx, Wy, Wz = local2World(x, 0, z, TGTx, TGTz, TGTy, aimQt)
+                    Wx, Wy, Wz = local2World(x, 0, z, nextX, nextZ, nextY, aimQt)
                     return stabilizer2(Px, Py, Pz, lasQt, lasPvx, lasPvy, lasPvz, lasPrvx, lasPrvy, lasPrvz, Wx, Wy, Wz, TGTvx, TGTvy, TGTvz, Wx, Wy, Wz, LASER_STABI_T)
                 end
 

@@ -83,6 +83,10 @@
 		{
 			"name": "Tank Stand V1",
 			"path": "../src/display system/Tank Stand V1"
-		}
+		},
+        {
+            "name": "libs",
+            "path": "../libs"
+        }
 	]
 }
