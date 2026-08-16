@@ -1,3 +1,5 @@
+
+
 --- Developed using LifeBoatAPI - Stormworks Lua plugin for VSCode - https://code.visualstudio.com/download (search "Stormworks Lua with LifeboatAPI" extension)
 --- If you have any issues, please report them here: https://github.com/nameouschangey/STORMWORKS_VSCodeExtension/issues - by Nameous Changey
 
@@ -40,6 +42,7 @@ end
 -- try require("Folder.Filename") to include code from another file in this, so you can store code in libraries
 -- the "LifeBoatAPI" is included by default in /_build/libs/ - you can use require("LifeBoatAPI") to get this, and use all the LifeBoatAPI.<functions>!
 
+
 INN = input.getNumber
 INB = input.getBool
 OUN = output.setNumber
@@ -47,11 +50,12 @@ OUB = output.setBool
 PRN = property.getNumber
 PRB = property.getBool
 PRT = property.getText
+TUP = table.unpack
 pi2 = math.pi*2
 
 SEAT_STABI_T = 7.5
-SEAT_STABI_P = 8.2
-SEAT_STABI_D = 0
+SEAT_STABI_P = 8
+SEAT_STABI_D = 15
 SEAT_PIVOT = 32/5
 
 LASER_STABI_T = 4
@@ -63,22 +67,22 @@ TGT_PRED_DELAY = 0  --n[tick]後の未来位置を予測
 TRC_END_TICK = 200  --n[tick]以上検出しなかったら追尾終了
 TGT_RADIUS_GAIN = 1.05
 
-alpha = 0.01 --α-βフィルタのα
-beta = 0.01  --α-βフィルタのβ
+gain1 = {0.1, 0.002, 0.00001}
+gain2 = {0.3, 0.01, 0.0005}
 
+SLERP_T = 0.05
 
 --関数
 do
-
     --左手系でXYZ順オイラー角から右手系クォータニオンへ変換
-    function euler2Qt(Ex, Ey, Ez)
-        return mulQt({0, math.sin(-Ez/2), 0, math.cos(-Ez/2)}, mulQt({0, 0, math.sin(-Ey/2), math.cos(-Ey/2)}, {math.sin(-Ex/2), 0, 0, math.cos(-Ex/2)}))
+    function euler2Qt(LEx, LEy, LEz)
+        return mulQt({0, math.sin(-LEz/2), 0, math.cos(-LEz/2)}, mulQt({0, 0, math.sin(-LEy/2), math.cos(-LEy/2)}, {math.sin(-LEx/2), 0, 0, math.cos(-LEx/2)}))
     end
 
     --クォータニオンの掛け算(q:回転, p: 姿勢)
     function mulQt(q, p)
-        local a, b, c, d = table.unpack(q)
-        local x, y, z, w = table.unpack(p)
+        local a, b, c, d = TUP(q)
+        local x, y, z, w = TUP(p)
         return {
             d*x - c*y + b*z + a*w,
             c*x + d*y - a*z + b*w,
@@ -88,38 +92,14 @@ do
     end
 
     --ローカル座標からワールド座標へ
-    function local2World(Lx, Ly, Lz, Px, Py, Pz, q)
-        local x, y, z = table.unpack(mulQt(q, mulQt({Lx, Ly, Lz, 0}, {-q[1], -q[2], -q[3], q[4]})))
-        return x + Px, y + Pz, z + Py
+    function local2World(Lx, Ly, Lz, myWx, myWy, myWz, q)
+        local x, y, z = TUP(mulQt(q, mulQt({Lx, Ly, Lz, 0}, {-q[1], -q[2], -q[3], q[4]})))
+        return x + myWx, y + myWy, z + myWz
     end
 
     --ワールド座標からローカル座標へ
-    function world2Local(Wx, Wy, Wz, Px, Py, Pz, q)
-        return table.unpack(mulQt({-q[1], -q[2], -q[3], q[4]}, mulQt({Wx - Px, Wy - Pz, Wz - Py, 0}, q)))
-    end
-
-    --姿勢の球面補間(q1からq2へtの割合)
-    function slerp(q1, q2, t)
-        local dot, theta, e, f
-        local a, b, c, d = table.unpack(q1)
-        local x, y, z, w = table.unpack(q2)
-        dot = a*x + b*y + c*z + d*w     --内積
-        if dot < 0 then                 --遠回り回転なら逆へ回転させる
-            dot, x, y, z, w = -dot, -x, -y, -z, -w
-        end
-        theta = math.acos(dot)          --必要回転角度
-        if theta > 0.0001 then          --０除算対策
-            e = math.sin((1 - t)*theta)/math.sin(theta)
-            f = math.sin(t*theta)/math.sin(theta)
-        else
-            e, f = (1 - t), t
-        end
-        x = e*a + f*x
-        y = e*b + f*y
-        z = e*c + f*z
-        w = e*d + f*w
-        e = math.sqrt(x*x + y*y + z*z + w*w)    --正規化
-        return {x/e, y/e, z/e, w/e}
+    function world2Local(Wx, Wy, Wz, myWx, myWy, myWz, q)
+        return TUP(mulQt({-q[1], -q[2], -q[3], q[4]}, mulQt({Wx - myWx, Wy - myWy, Wz - myWz, 0}, q)))
     end
 
     --ローカル座標からローカル極座標へ変換(return pitch, yaw)
@@ -157,69 +137,73 @@ do
     end
 
     --カンマ区切り3つの文字列を数字に変換し、オフセット
-    function offset(PRTName, Px, Py, Pz, Qt)
+    function offset(PRTName, Wx, Wy, Wz, Qt)
         offsetX, offsetY, offsetZ = string.match(PRT(PRTName), "([^,]+),([^,]+),([^,]+)")
-        return local2World(tonumber(offsetX), tonumber(offsetY), tonumber(offsetZ), Px, Py, Pz, Qt)
+        return {local2World(tonumber(offsetX), tonumber(offsetY), tonumber(offsetZ), Wx, Wy, Wz, Qt)}
     end
 
-    function distance3(x, y, z)
-        return math.sqrt(x*x + y*y + z*z)
+    --ベクトル同士の距離
+    function distVec(x, y)
+        sum = 0
+        for i = 1, #x do
+            sum = sum + (x[i] - y[i])^2
+        end
+        return math.sqrt(sum)
     end
 
     function same_rotation(x)
         return (x + 0.5)%1 - 0.5
     end
 
-    --(return: futurePitch, futureYaw)
-    --Prv[rad/tick], Tは視線角速度観測用のターゲット位置と速度, losは向くべき方向, 2軸スタビ
-    function stabilizer2(Px, Py, Pz, Qt, Pvx, Pvy, Pvz, Prvx, Prvy, Prvz, Tx, Ty, Tz, Tvx, Tvy, Tvz, losWx, losWy, losWz, DELAY)
-        local TLx, TLy, TLz, TLvx, TLvy, TLvz, Lrvx, Lrvy, Lrvz, losRvx, losRvy, losRvz, Vrx, Vry, Vrz, T2, absRv, cos, sin, dot, losFutureX, losFutureY, losFutureZ, losLx, losLy, losLz
+    ---@param Wx number 自身の位置[m]
+    ---@param Wz number 自身の位置[m]
+    ---@param Wy number 自身の位置[m]
+    ---@param Qt table 自身の姿勢[クォータニオン]
+    ---@param Wvx number 自身の速度[m/tick]
+    ---@param Wvz number 自身の速度[m/tick]
+    ---@param Wvy number 自身の速度[m/tick]
+    ---@param Wrvx number 自身の角速度[rad/tick]
+    ---@param Wrvz number 自身の角速度[rad/tick]
+    ---@param Wrvy number 自身の角速度[rad/tick]
+    ---@param Tx number ターゲット位置[m]
+    ---@param Ty number ターゲット位置[m]
+    ---@param Tz number ターゲット位置[m]
+    ---@param Tvx number ターゲット速度[m/tick]
+    ---@param Tvy number ターゲット速度[m/tick]
+    ---@param Tvz number ターゲット速度[m/tick]
+    ---@param DELAY number 予測する時間[tick]
+    ---@return number pitch [回転]
+    ---@return number yaw [回転]
+    --Prv[rad/tick], Tはターゲット位置と速度, 2軸スタビ
+    function stabilizer2(Wx, Wy, Wz, Qt, Wvx, Wvy, Wvz, Wrvx, Wrvy, Wrvz, Tx, Ty, Tz, Tvx, Tvy, Tvz, DELAY)
+        local TLx, TLy, TLz, TLvx, TLvy, TLvz, Lrvx, Lrvy, Lrvz, losRvx, losRvy, losRvz, Vrx, Vry, Vrz, T2
         --ローカル座標
-        TLx, TLy, TLz = world2Local(Tx, Ty, Tz, Px, Py, Pz, Qt)
+        TLx, TLy, TLz = world2Local(Tx, Ty, Tz, Wx, Wy, Wz, Qt)
         TLvx, TLvy, TLvz = world2Local(Tvx, Tvy, Tvz, 0, 0, 0, Qt)
-        Lrvx, Lrvy, Lrvz = world2Local(Prvx, Prvz, Prvy, 0, 0, 0, Qt)
-        losLx, losLy, losLz = world2Local(losWx, losWy, losWz, Px, Py, Pz, Qt)
+        Lrvx, Lrvy, Lrvz = world2Local(Wrvx, Wrvy, Wrvz, 0, 0, 0, Qt)
         --相対速度
-        Vrx, Vry, Vrz = TLvx - Pvx, TLvy - Pvz, TLvz - Pvy
+        Vrx, Vry, Vrz = TLvx - Wvx, TLvy - Wvy, TLvz - Wvz
         --視線角速度
         T2 = TLx*TLx + TLy*TLy + TLz*TLz
-        losRvx = (TLy*Vrz - TLz*Vry)/T2 - (-Lrvx)
-        losRvy = (TLz*Vrx - TLx*Vrz)/T2 - (-Lrvy)
-        losRvz = (TLx*Vry - TLy*Vrx)/T2 - (-Lrvz)
-        --t[tick]後の未来位置へ(ロドリゲスの公式)
-        absRv = math.sqrt(losRvx*losRvx + losRvy*losRvy + losRvz*losRvz)
-        cos = math.cos(absRv*DELAY)
-        sin = math.sin(absRv*DELAY)/absRv
-        dot = (losRvx*losLx + losRvy*losLy + losRvz*losLz)*(1 - cos)/absRv/absRv
-        losFutureX = cos*losLx + sin*(losRvy*losLz - losRvz*losLy) + dot*losRvx
-        losFutureY = cos*losLy + sin*(losRvz*losLx - losRvx*losLz) + dot*losRvy
-        losFutureZ = cos*losLz + sin*(losRvx*losLy - losRvy*losLx) + dot*losRvz
-        return rect2Polar(losFutureX, losFutureY, losFutureZ, false)
+        losRvx = (TLy*Vrz - TLz*Vry)/T2 - Lrvx
+        losRvy = (TLz*Vrx - TLx*Vrz)/T2 - Lrvy
+        losRvz = (TLx*Vry - TLy*Vrx)/T2 - Lrvz
+        --未来位置
+        TLx, TLy, TLz = rotateRv(TLx, TLy, TLz, losRvx, losRvy, losRvz, DELAY)
+        return rect2Polar(TLx, TLy, TLz, false)
     end
 
-    --(return: futurePitch, futureYaw)
-    --Prv[rad/tick], azimuth[回転]は向くべき方位, 1軸スタビ
-    function stabilizer1(Qt, Prvx, Prvy, Prvz, azimuth, DELAY)
-        local losRvx, losRvy, losRvz, absRv, cos, sin, dot, futWx, futWy, futWz, Wx, Wy, ex, ey, ez, futLx, futLy, futLz
-        --向くべき方位(３次元座標)
-        Wx, Wy = math.sin(azimuth*pi2), math.cos(azimuth*pi2)
-        --角速度を右手系変換し、標的の視線角速度に変える
-        losRvx, losRvy, losRvz = -(-Prvx), -(-Prvz), -(-Prvy)
-        --t[tick]後の未来位置へ(ロドリゲスの公式)
-        absRv = math.sqrt(losRvx*losRvx + losRvy*losRvy + losRvz*losRvz)
-        cos = math.cos(absRv*DELAY)
-        sin = math.sin(absRv*DELAY)/absRv
-        dot = (losRvx*Wx + losRvy*Wy)*(1 - cos)/absRv/absRv
-        futWx = cos*Wx - sin*losRvz*Wy + dot*losRvx
-        futWy = cos*Wy + sin*losRvz*Wx + dot*losRvy
-        futWz = sin*(losRvx*Wy - losRvy*Wx) + dot*losRvz
-        --ローカル座標変換
-        ex, ey, ez = world2Local(0, 0, 1, 0, 0, 0, Qt)  --Z軸単位ベクトル
-        futLx, futLy, futLz = world2Local(futWx, futWy, futWz, 0, 0, 0, Qt)
-        --逆投影(?)
-        futLx = futLx - ex*futLz/ez
-        futLy = futLy - ey*futLz/ez
-        return rect2Polar(futLx, futLy, 0, false)
+    --位置ベクトルを角速度rv[rad/tick]でt[tick]回転させる
+    function rotateRv(x, y, z, rvx, rvy, rvz, t)
+        local abs, h, s, p
+        abs = math.sqrt(rvx*rvx + rvy*rvy + rvz*rvz)
+        if abs > 0 then
+            h = abs*t/2
+            s = math.sin(h)/abs
+            p = mulQt({rvx*s, rvy*s, rvz*s, math.cos(h)}, mulQt({x, y, z, 0}, {-rvx*s, -rvy*s, -rvz*s, math.cos(h)}))
+            x, y, z = TUP(p)
+        end
+        return x, y, z
     end
 
     seatYawES, seatYawEP = 0, 0
@@ -240,29 +224,29 @@ do
         return clamp(control, min, max), errorSum, error
     end
 
-    --２つのベクトルから法線ベクトルを算出
-    function calNomVec(x1, y1, z1, x2, y2, z2)
-        local nx, ny, nz
-        nx = y1*z2 - z1*y2
-        ny = z1*x2 - x1*z2
-        nz = x1*y2 - y1*x2
+    --２つのベクトルから法線ベクトルを算出(gndが基準)
+    function calNomVec(a, b, gnd)
+        x1, y1, z1 = TUP(a)
+        x2, y2, z2 = TUP(b)
+        gndX, gndY, gndZ = TUP(gnd)
+        x1, y1, z1 = x1 - gndX, y1 - gndY, z1 - gndZ
+        x2, y2, z2 = x2 - gndX, y2 - gndY, z2 - gndZ
+        nom = {
+            y1*z2 - z1*y2,
+            z1*x2 - x1*z2,
+            x1*y2 - y1*x2
+        }
+        nx, ny, nz = TUP(nom)
         --正規化
-        local len = math.sqrt(nx*nx + ny*ny + nz*nz)
+        len = distVec(nom, {0, 0, 0})
         if len > 0 then
-            nx, ny, nz = nx/len, ny/len, nz/len
-        else
-            nx, ny, nz = 0, 0, 0
+            nom = {nx/len, ny/len, nz/len}
         end
         --上下逆なら反転
         if nz < 0 then
-            nx, ny, nz = -nx, -ny, -nz
+            nom = {-nom[1], -nom[2], -nom[3]}
         end
-        return nx, ny, nz
-    end
-
-    --標点、基準点、法線ベクトルから対地高度を算出
-    function calGndAlt(targetX, targetY, targetZ, gndX, gndY, gndZ, nomX, nomY, nomZ)
-        return (targetX - gndX)*nomX + (targetY - gndY)*nomY + (targetZ - gndZ)*nomZ
+        return nom
     end
 
     --α-β-γフィルタ(z: 観測値, x:状態量, gain: α-β-γフィルタのゲイン, N: 同時観測数)
@@ -285,180 +269,214 @@ do
         end
         return x
     end
+
+    function copyTable(x)
+        return {TUP(x)}
+    end
 end
 
 t = 0
 pitchPrev, yawPrev = 0, 0
 seatLosQtPrev = {0, 0, 0, 1}
-las1Direc = {{0, 0}}
-las2Direc = {{0, 0}}
-las3Direc = {{0, 0}}
-las4Direc = {{0, 0}}
+lasDirec = {{0, 0, 0, 0, 0, 0, 0, 0}}
 lasQtBuf = {{0, 0, 0, 1}}
 trackInPre = false
+seatResetPre = false
 isTracking = false
 is1P = false
 GNDCorrectionT = 0
 trackT = 0
 notHitT = 0
+lasDirecSet = {}    --出力するヨー、ピッチ
+lasPos = {}         --レーザ自身の座標
 
 function onTick()
-    gain1 = {PRN("Alpha"), PRN("Beta"), PRN("Gamma")}
-    gain2 = {PRN("Alpha2"), PRN("Beta2"), PRN("Gamma2")}
-
-
-    --インプット
+    --インプット(右手系に変換する)
     do
-        lasPx, lasPy, lasPz = INN(1), INN(2), INN(3)
         lasQt = euler2Qt(INN(4), INN(5), INN(6))
-        lasPvx, lasPvy, lasPvz = INN(7)/60, INN(8)/60, INN(9)/60
-        lasPrvx, lasPrvy, lasPrvz = INN(10)*pi2/60, INN(11)*pi2/60, INN(12)*pi2/60
+        lasLvx, lasLvy, lasLvz = INN(7)/60, INN(9)/60, INN(8)/60
+        lasWrvx, lasWrvy, lasWrvz = -INN(10)*pi2/60, -INN(12)*pi2/60, -INN(11)*pi2/60
 
-        las1Dist, las2Dist, las3Dist, las4Dist = INN(27), INN(28), INN(29), INN(30)
+        lasDist = {INN(27), INN(28), INN(29), INN(30)}
 
         bodQt = euler2Qt(INN(13), INN(14), INN(15))
-        bodPrvx, bodPrvy, bodPrvz = INN(16)*pi2/60, INN(17)*pi2/60, INN(18)*pi2/60
+        bodWrvx, bodWrvy, bodWrvz = -INN(16)*pi2/60, -INN(18)*pi2/60, -INN(17)*pi2/60
 
-        seatPx, seatPy, seatPz = INN(19), INN(20), INN(21)
         seatQt = euler2Qt(INN(22), INN(23), INN(24))
 
         seatLosYaw, seatLosPitch = INN(25)*pi2, INN(26)*pi2
 
-        trackIn = INN(31) == 1
+        trackIn = INN(31)%10 == 1
+        seatReset = INN(31)//10 == 1
         isPower = INN(32) == 1
 
         vehicleCamMode = PRN("Vehicle Camera Mode")
-
-        LaserOffset = "Laser offset "
-        FPSWx, FPSWy, FPSWz = offset("FPS view offset", seatPx, seatPy, seatPz, seatQt)
-        TPSWx, TPSWy, TPSWz = offset("TPS view offset", seatPx, seatPy, seatPz, seatQt)
-        las1Px, las1Pz, las1Py = offset(LaserOffset.."1", lasPx, lasPy, lasPz, lasQt)
-        las2Px, las2Pz, las2Py = offset(LaserOffset.."2", lasPx, lasPy, lasPz, lasQt)
-        las3Px, las3Pz, las3Py = offset(LaserOffset.."3", lasPx, lasPy, lasPz, lasQt)
-        las4Px, las4Pz, las4Py = offset(LaserOffset.."4", lasPx, lasPy, lasPz, lasQt)
-
         TGT_RADIUS0 = PRN("Target radius [m]")
+
+        --視線の中心座標
+        FPSPos = offset("FPS view offset", INN(19), INN(21), INN(20), seatQt)
+        TPSPos = offset("TPS view offset", INN(19), INN(21), INN(20), seatQt)
+
+        --レーザの座標
+        for i = 1, 4 do
+            lasPos[i] = offset("Laser offset "..i, INN(1), INN(3), INN(2), lasQt)
+        end
+
+        --レーザーの指している座標
+        lasPoint = {}
+        for i = 1, 7, 2 do
+            Lx, Ly, Lz = polar2Rect(lasDirec[1][i + 1], lasDirec[1][i], lasDist[(i + 1)/2], false)
+            table.insert(lasPoint, {local2World(Lx, Ly, Lz, INN(1), INN(3), INN(2), lasQtBuf[1])})
+        end
+
+        --視線の基準となる真の姿勢(球面補間)
+        do
+            a, b, c, d = TUP(seatLosQtPrev)
+            x, y, z, w = TUP(seatQt)
+            dot = a*x + b*y + c*z + d*w     --内積
+            if dot < 0 then                 --遠回り回転なら逆へ回転させる
+                dot, x, y, z, w = -dot, -x, -y, -z, -w
+            end
+            theta = math.acos(dot)          --必要回転角度
+            if theta > 0.0001 then          --０除算対策
+                e = math.sin((1 - SLERP_T)*theta)/math.sin(theta)
+                f = math.sin(SLERP_T*theta)/math.sin(theta)
+            else
+                e, f = (1 - SLERP_T), SLERP_T
+            end
+            x = e*a + f*x
+            y = e*b + f*y
+            z = e*c + f*z
+            w = e*d + f*w
+            e = math.sqrt(x*x + y*y + z*z + w*w)    --正規化
+            seatLosQt = {x/e, y/e, z/e, w/e}
+            seatLosQtPrev = copyTable(seatLosQt)
+        end
+    end
+
+    --出力リセット
+    for i = 1, 32 do
+        OUN(i, 0)
     end
 
     --追尾開始のパルス
     trackPulse = not trackInPre and trackIn
     trackInPre = trackIn
 
+    --シート方向リセットのパルス
+    seatResetPulse = not seatResetPre and seatReset
+    seatResetPre = seatReset
+
+    --シートピボットのヨー、向きたい方位角の計算
+    do
+        Wx, Wy, Wz = local2World(0, 1, 0, 0, 0, 0, seatQt)
+        Lx, Ly, Lz = world2Local(Wx, Wy, Wz, 0, 0, 0, bodQt)
+        _, seatCntYaw = rect2Polar(Lx, Ly, Lz, false)
+        Wx, Wy, Wz = local2World(0, 1, 0, 0, 0, 0, lasQt)
+        _, turretAzi = rect2Polar(Wx, Wy, Wz, false)
+    end
+
     --phys = 0の時を防ぎ、レーザの振動をなくす
     if t > 5 and isPower then
-        --レーザが指している座標
+        --シートピボット回転速度計算
         do
-            a, b, c, d = las1Direc[1], las2Direc[1], las3Direc[1], las4Direc[1]
-            Lx, Ly, Lz = polar2Rect(a[1], a[2], las1Dist, false)
-            las1Wx, las1Wy, las1Wz = local2World(Lx, Ly, Lz, lasPx, lasPy, lasPz, lasQtBuf[1])
-            Lx, Ly, Lz = polar2Rect(b[1], b[2], las2Dist, false)
-            las2Wx, las2Wy, las2Wz = local2World(Lx, Ly, Lz, lasPx, lasPy, lasPz, lasQtBuf[1])
-            Lx, Ly, Lz = polar2Rect(c[1], c[2], las3Dist, false)
-            las3Wx, las3Wy, las3Wz = local2World(Lx, Ly, Lz, lasPx, lasPy, lasPz, lasQtBuf[1])
-            Lx, Ly, Lz = polar2Rect(d[1], d[2], las4Dist, false)
-            las4Wx, las4Wy, las4Wz = local2World(Lx, Ly, Lz, lasPx, lasPy, lasPz, lasQtBuf[1])
-        end
+            if seatResetPulse then
+                seatTGTAzi = turretAzi
+            end
 
-        --視線の基準となる真の姿勢
-        do
-            seatLosQt = slerp(seatLosQtPrev, seatQt, 0.05)
-            seatLosQtPrev = {table.unpack(seatLosQt)}
-        end
-
-        --ピボットのヨーに変換
-        do
-            Wx, Wy, Wz = local2World(0, 1, 0, 0, 0, 0, seatQt)
+            --t[tick]後の未来位置へ
+            Wx, Wy, Wz = rotateRv(math.sin(seatTGTAzi*pi2), math.cos(seatTGTAzi*pi2), 0, bodWrvx, bodWrvz, bodWrvy, SEAT_STABI_T)
+            --ローカル座標変換
+            ex, ey, ez = world2Local(0, 0, 1, 0, 0, 0, bodQt)  --Z軸単位ベクトル
             Lx, Ly, Lz = world2Local(Wx, Wy, Wz, 0, 0, 0, bodQt)
-            _, seatCntYaw = rect2Polar(Lx, Ly, Lz, false)
+            --逆投影(?)しつつ極座標へ
+            _, seatIdealYaw = rect2Polar(Lx - ex*Lz/ez, Ly - ey*Lz/ez, 0, false)
         end
 
-        --シートピボット
+        --視線が指している座標の計算
         do
-            _, seatIdealYaw = stabilizer1(bodQt, bodPrvx, bodPrvy, bodPrvz, 0.25, SEAT_STABI_T)
+            isFPS = is1P or vehicleCamMode == 2
+            
+            --視点からの距離を計算
+            pos = isFPS and FPSPos or TPSPos
+            if lasDist[1] == 4000 then
+                if lasDist[2] == 4000 then
+                    losDist = 300
+                else
+                    losDist = distVec(lasPoint[2], pos)
+                end
+            else
+                losDist = distVec(lasPoint[1], pos)
+            end
 
-            seatYawControl, seatYawES, seatYawEP = PID(SEAT_STABI_P, 0, SEAT_STABI_D, 0, -same_rotation(seatIdealYaw - seatCntYaw), seatYawES, seatYawEP, -100, 100)
-            seatYawControl = seatYawControl*SEAT_PIVOT
-            --nan対策
-            seatYawControl = seatYawControl ~= seatYawControl and 0 or seatYawControl
-        end
-
-        --視線方向
-        do
             --ワールド視線方向
-            if is1P or vehicleCamMode == 2 then     --一人称または固定の時
-                --視点からの距離を設定
-                losDist = las1Dist ~= 4000 and distance3(las1Wx - FPSWx, las1Wy - FPSWy, las1Wz - FPSWz) or 100
-
+            if isFPS then     --一人称または固定の時
                 --ローカル座標系
                 Lx, Ly, Lz = polar2Rect(seatLosPitch, seatLosYaw, losDist, true)
-                losWx, losWy, losWz = local2World(Lx, Ly, Lz, FPSWx, FPSWz, FPSWy, seatQt)
-            else                                    --水平固定または自由
-                --視点からの距離を設定
-                losDist = las1Dist ~= 4000 and distance3(las1Wx - TPSWx, las1Wy - TPSWy, las1Wz - TPSWz) or 100
-
+                losWx, losWy, losWz = local2World(Lx, Ly, Lz, FPSPos[1], FPSPos[2], FPSPos[3], seatQt)
+            else              --水平固定または自由
                 --ワールド座標系でピッチのみ零点シフト
                 Wx, Wy, Wz = local2World(0, 1, 0, 0, 0, 0, seatLosQt)
                 Wpi, Wya = rect2Polar(Wx, Wy, Wz, true)
                 losWx, losWy, losWz = polar2Rect(seatLosPitch + Wpi, seatLosYaw + Wya, losDist, true)
-                losWx, losWy, losWz = losWx + TPSWx, losWy + TPSWy, losWz + TPSWz
+                losWx, losWy, losWz = losWx + TPSPos[1], losWy + TPSPos[2], losWz + TPSPos[3]
             end
         end
 
-        --レーザ追尾
+        --レーザ方向
         do
             --追尾開始判定
-            if trackPulse and not isTracking and las1Dist ~= 0 and las1Dist ~= 4000 then
+            if trackPulse and not isTracking and lasDist[1] ~= 0 and lasDist[1] ~= 4000 then
                 isTracking = true
                 trackT = 0
                 notHitT = 0
-                gndX, gndY, gndZ = las2Wx, las2Wy, las2Wz
-                gndX1, gndY1, gndZ1 = las2Wx + 1, las2Wy, las2Wz
-                nomX, nomY, nomZ = 0, 0, 1
-                TGT = {las1Wx, las1Wy, las1Wz, 0, 0, 0, 0, 0, 0}
-                nextLas = {las1Wx, las1Wy, las1Wz, 0, 0, 0, 0, 0, 0}
+                gnd = copyTable(lasPoint[2])
+                gnd1 = copyTable(gnd)
+                gnd1[1] = gnd1[1] + 1
+                nom = {0, 0, 1}
+                TGT = {lasPoint[1][1], lasPoint[1][2], lasPoint[1][3], 0, 0, 0, 0, 0, 0}
+                ID = 2001
+                nextLas = copyTable(TGT)
                 TGTRadius = TGT_RADIUS0
                 hitSum = 0
 
                 --地面を補足したかどうか
-                isGndExist = las2Dist ~= 0 and las2Dist ~= 4000 and las2Dist < las1Dist
+                isGndExist = lasDist[2] ~= 0 and lasDist[2] ~= 4000 and lasDist[2] < lasDist[1]
                 
             --追尾終了判定
-            elseif (isTracking and trackPulse) or las1Dist == 0 or notHitT > TRC_END_TICK then
+            elseif (isTracking and trackPulse) or lasDist[1] == 0 or notHitT > TRC_END_TICK then
                 isTracking = false
             end
 
             --追尾中
             if isTracking then
-                --レーザ座標を判定し、ターゲット位置を保存
-                local hitN, avgX, avgY, avgZ = 0, 0, 0, 0
-                function judgeData(Wx, Wy, Wz)
-                    alt = calGndAlt(Wx, Wy, Wz, gndX, gndY, gndZ, nomX, nomY, nomZ)
-                    error = distance3(Wx - nextLas[1], Wy - nextLas[2], Wz - nextLas[3])
-                    isHit = error < TGTRadius*3 and (alt > TGT_ALT or not isGndExist)
-                    if isHit then
+                hitN, avgX, avgY, avgZ = 0, 0, 0, 0
+                isHit = {}
+
+                --ヒットしたどうか判定
+                for i = 1, 4 do
+                    Wx, Wy, Wz = TUP(lasPoint[i])
+                    alt = (Wx - gnd[1])*nom[1] + (Wy - gnd[2])*nom[2] + (Wz - gnd[3])*nom[3]    --対地高度
+                    error = distVec(lasPoint[i], nextLas)                                       --照射点と予測座標の距離
+                    hit = error < TGTRadius*3 and (alt > TGT_ALT or not isGndExist)
+                    if hit then
                         hitN, avgX, avgY, avgZ = hitN + 1, avgX + Wx, avgY + Wy, avgZ + Wz
                         hitSum = hitSum + 1
                     end
-                    return isHit
+                    table.insert(isHit, hit)
                 end
-
-                --ヒットしたどうか
-                las1Hit = judgeData(las1Wx, las1Wy, las1Wz)
-                las2Hit = judgeData(las2Wx, las2Wy, las2Wz)
-                las3Hit = judgeData(las3Wx, las3Wy, las3Wz)
-                las4Hit = judgeData(las4Wx, las4Wy, las4Wz)
 
                 --ABF
                 do
                     --ヒットした座標のみで平均化
                     --更新があるときのみ更新
                     if hitN > 0 then
-                        avgX, avgY, avgZ = avgX/hitN, avgY/hitN, avgZ/hitN
-                        TGT = ABGFUpdate({avgX, avgY, avgZ}, TGT, gain1, hitN)
+                        avgPos = {avgX/hitN, avgY/hitN, avgZ/hitN}
+                        TGT = ABGFUpdate(avgPos, TGT, gain1, hitN)
                         notHitT = 0
 
                         --次に照射する座標
-                        nextLas = ABGFUpdate({avgX, avgY, avgZ}, nextLas, gain2, hitN)
+                        nextLas = ABGFUpdate(avgPos, nextLas, gain2, hitN)
                     else
                         notHitT = notHitT + 1
                     end
@@ -467,13 +485,16 @@ function onTick()
                     nextLas = ABGFPredict(nextLas)
                 end
 
-                function calPiYa(x, z, Px, Py, Pz)
+                function setPiYa(x, z, lasIndex)
                     --照準面座標系のクォータニオンを生成(中心に自機、標的が正面、ロール角0°の座標系)
-                    aimYaw = math.atan(nextLas[1] - Px, nextLas[2] - Pz)
-                    aimPitch = math.atan(nextLas[3] - Py, math.sqrt((nextLas[1] - Px)^2 + (nextLas[2] - Pz)^2))
+                    posX, posY, posZ = TUP(lasPos[lasIndex])
+                    nlX, nlY, nlZ = TUP(nextLas)
+                    aimYaw = -math.atan(nlX - posX, nlY - posY)
+                    aimPitch = math.atan(nlZ - posZ, math.sqrt((nlX - posX)^2 + (nlY - posY)^2))
                     aimQt = mulQt({math.sin(aimPitch/2), 0, 0, math.cos(aimPitch/2)}, {0, 0, math.sin(aimYaw/2), math.cos(aimYaw/2)})
-                    Wx, Wy, Wz = local2World(x, 0, z, nextLas[1], nextLas[3], nextLas[2], aimQt)
-                    return stabilizer2(Px, Py, Pz, lasQt, lasPvx, lasPvy, lasPvz, lasPrvx, lasPrvy, lasPrvz, Wx, Wy, Wz, nextLas[4], nextLas[5], nextLas[6], Wx, Wy, Wz, LASER_STABI_T)
+                    Wx, Wy, Wz = local2World(x, 0, z, nlX, nlY, nlZ, aimQt)
+                    pitch, yaw = stabilizer2(posX, posY, posZ, lasQt, lasLvx, lasLvy, lasLvz, lasWrvx, lasWrvy, lasWrvz, Wx, Wy, Wz, nextLas[4], nextLas[5], nextLas[6], LASER_STABI_T)
+                    lasDirecSet[lasIndex*2 - 1], lasDirecSet[lasIndex*2] = yaw, pitch
                 end
 
                 --地面基準照射点を計算
@@ -488,41 +509,42 @@ function onTick()
                         {0.1, gndOfstZ},
                         {0, gndOfstZ - 0.1}
                     })[trackT%4+1]
-                    las1pitch, las1yaw = calPiYa(p[1], p[2], las1Px, las1Py, las1Pz)
+                    setPiYa(p[1], p[2], 1)
                 else    --地面がないときは中心
-                    las1pitch, las1yaw = calPiYa(0, 0, las1Px, las1Py, las1Pz)
+                    setPiYa(0, 0, 1)
                 end
 
                 --レーザ２/３は八角形に投射(半径は一律)
                 theta = (trackT%8)*pi2/8
                 x = TGTRadius*math.cos(theta)
                 z = TGTRadius*math.sin(theta)
-                las2pitch, las2yaw = calPiYa(x, z, las2Px, las2Py, las2Pz)
+                setPiYa(x, z, 2)
                 theta = (trackT%8 + 0.5)*pi2/8
                 x = TGTRadius*math.cos(theta)
                 z = TGTRadius*math.sin(theta)
-                las3pitch, las3yaw = calPiYa(-x, -z, las3Px, las3Py, las3Pz)
+                setPiYa(-x, -z, 3)
+                --レーザ４は四角形に投射(半径は半分)
                 theta = (trackT%4)*pi2/4
                 x = TGTRadius*math.cos(theta)/2
                 z = TGTRadius*math.sin(theta)/2
-                las4pitch, las4yaw = calPiYa(x, z, las4Px, las4Py, las4Pz)
+                setPiYa(x, z, 4)
 
                 --地面とターゲットサイズ更新
                 if trackT > LASER_DELAY then
                     if (trackT - LASER_DELAY)%4 == 1 then
                         --基準座標
-                        gndX, gndY, gndZ = las1Wx, las1Wy, las1Wz
+                        gnd = copyTable(lasPoint[1])
                     elseif (trackT - LASER_DELAY)%4 == 2 then
                         --地面座標１を保持
-                        gndX1, gndY1, gndZ1 = las1Wx, las1Wy, las1Wz
+                        gnd1 = copyTable(lasPoint[1])
                     elseif (trackT - LASER_DELAY)%4 == 3 then
                         --地面座標２と地面座標１を使い、法線ベクトルを算出
-                        nomX, nomY, nomZ = calNomVec(las1Wx - gndX, las1Wy - gndY, las1Wz - gndZ, gndX1 - gndX, gndY1 - gndY, gndZ1 - gndZ)
+                        nom = calNomVec(lasPoint[1], gnd1, gnd)
                     end
 
                     --ヒット率に基づき半径を更新
                     if (trackT - LASER_DELAY)%8 == 0 then
-                        if las1Hit then
+                        if isHit[1] then
                             if hitSum/26 > 0.3 then
                                 TGTRadius = TGTRadius*TGT_RADIUS_GAIN
                             elseif hitSum/26 < 0.15 then
@@ -531,92 +553,81 @@ function onTick()
                         end
                         hitSum = 0
                     end
-
-                    
-
                 elseif trackT == LASER_DELAY then
-                    nomX, nomY, nomZ = calNomVec(las1Wx - gndX, las1Wy - gndY, las1Wz - gndZ, las2Wx - gndX, las2Wy - gndY, las2Wz - gndZ)
-                end
-
-                --ターゲット座標出力
-                if trackT > LASER_DELAY then
-                    for i = 1, 9 do
-                        OUN(i, TGT[i])
-                    end
-
-                    if las1Hit then
-                        OUN(20, las1Wx)
-                        OUN(21, las1Wy)
-                        OUN(22, las1Wz)
-                    end
-
-
-                    OUN(23, TGTRadius)
+                    nom = calNomVec(lasPoint[1], lasPoint[2], gnd)
                 end
 
                 trackT = trackT + 1
             else
+                --座標出力
+                TGT = {losWx, losWy, losWz, 0, 0, 0, 0, 0, 0}
+                ID = 609001
+
                 --レーザ１は直接ターゲットを補足
                 --レーザ２は追尾に備えてターゲット下の地面を補足しておく
                 --それ以外はニュートラル
-                las1pitch, las1yaw = stabilizer2(las1Px, las1Py, las1Pz, lasQt, lasPvx, lasPvy, lasPvz, lasPrvx, lasPrvy, lasPrvz, losWx, losWy, losWz, 0, 0, 0, losWx, losWy, losWz, LASER_STABI_T)
+                if lasDist[1] == 4000 and lasDist[2] == 4000 then
+                    Lx, Ly, Lz = polar2Rect(seatLosPitch, seatLosYaw, 10^5, true)
+                    losWx, losWy, losWz = local2World(Lx, Ly, Lz, FPSPos[1], FPSPos[2], FPSPos[3], seatQt)
+                end
+
+                las1pitch, las1yaw = stabilizer2(lasPos[1][1], lasPos[1][2], lasPos[1][3], lasQt, lasLvx, lasLvy, lasLvz, lasWrvx, lasWrvy, lasWrvz, losWx, losWy, losWz, 0, 0, 0, LASER_STABI_T)
                 gndOfstZ = -TGT_RADIUS0
-                theta = math.atan(las2Pz - losWy, las2Px - losWx)
+                theta = math.atan(lasPos[2][2] - losWy, lasPos[2][1] - losWx)
                 gndOfstX = math.cos(theta)*TGT_RADIUS0*2
                 gndOfstY = math.sin(theta)*TGT_RADIUS0*2
-                las2pitch, las2yaw = stabilizer2(las2Px, las2Py, las2Pz, lasQt, lasPvx, lasPvy, lasPvz, lasPrvx, lasPrvy, lasPrvz, losWx + gndOfstX, losWy + gndOfstY, losWz + gndOfstZ, 0, 0, 0, losWx + gndOfstX, losWy + gndOfstY, losWz + gndOfstZ, LASER_STABI_T)
-
-                las3pitch, las3yaw = 0, 0
-                las4pitch, las4yaw = 0, 0
-
-                --座標出力
-                OUN(1, losWx)
-                OUN(2, losWy)
-                OUN(3, losWz)
-                OUN(4, 0)
-                OUN(5, 0)
-                OUN(6, 0)
+                las2pitch, las2yaw = stabilizer2(lasPos[2][1], lasPos[2][2], lasPos[2][3], lasQt, lasLvx, lasLvy, lasLvz, lasWrvx, lasWrvy, lasWrvz, losWx + gndOfstX, losWy + gndOfstY, losWz + gndOfstZ, 0, 0, 0, LASER_STABI_T)
+                lasDirecSet = {las1yaw, las1pitch, las2yaw, las2pitch, 0, 0, 0, 0}
             end
         end
 
-        --レーザ俯仰角を制限
-        las1pitch, las1yaw = clamp(las1pitch, -0.125, 0.125), clamp(las1yaw, -0.125, 0.125)
-        las2pitch, las2yaw = clamp(las2pitch, -0.125, 0.125), clamp(las2yaw, -0.125, 0.125)
-        las3pitch, las3yaw = clamp(las3pitch, -0.125, 0.125), clamp(las3yaw, -0.125, 0.125)
-        las4pitch, las4yaw = clamp(las4pitch, -0.125, 0.125), clamp(las4yaw, -0.125, 0.125)
         OUB(1, true)
 
         OUB(10, isTracking)
 
         OUN(31, seatYawControl)
 
-        OUN(10, -las1yaw*8)
-        OUN(11, -las1pitch*8)
-        OUN(12, -las2yaw*8)
-        OUN(13, -las2pitch*8)
-        OUN(14, -las3yaw*8)
-        OUN(15, -las3pitch*8)
-        OUN(16, -las4yaw*8)
-        OUN(17, -las4pitch*8)
+        for i = 1, 9 do
+            OUN(i, TGT[i])
+        end
+
+        --レーザ俯仰角を制限, レーザ方向出力
+        for i = 1, 8 do
+            lasDirecSet[i] = clamp(lasDirecSet[i], -0.25, 0.25)
+            OUN(9 + i, -lasDirecSet[i]*8)
+        end
+
+        --カメラとレーザの方向と倍率
+        --18~22
+
+        --SRD3
+        OUN(23, TGT[1])
+        OUN(24, TGT[2])
+        OUN(25, TGT[3])
+        OUN(26, ID)
 
         --レーザ方向の遅延
         do
-            table.insert(las1Direc, {las1pitch, las1yaw})
-            table.insert(las2Direc, {las2pitch, las2yaw})
-            table.insert(las3Direc, {las3pitch, las3yaw})
-            table.insert(las4Direc, {las4pitch, las4yaw})
-            table.insert(lasQtBuf, {table.unpack(lasQt)})
+            table.insert(lasDirec, copyTable(lasDirecSet))
+            table.insert(lasQtBuf, copyTable(lasQt))
 
-            if #las1Direc > LASER_DELAY then
-                table.remove(las1Direc, 1)
-                table.remove(las2Direc, 1)
-                table.remove(las3Direc, 1)
-                table.remove(las4Direc, 1)
+            if #lasDirec > LASER_DELAY then
+                table.remove(lasDirec, 1)
                 table.remove(lasQtBuf, 1)
             end
         end
     elseif t <= 5 then
         t = t + 1
+        seatIdealYaw = 0
+        seatTGTAzi = turretAzi
+    end
+
+    --シートピボットのPID制御
+    do
+        seatYawControl, seatYawES, seatYawEP = PID(SEAT_STABI_P, 0, SEAT_STABI_D, 0, -same_rotation(seatIdealYaw - seatCntYaw), seatYawES, seatYawEP, -100, 100)
+        seatYawControl = clamp(seatYawControl*SEAT_PIVOT, -10, 10)
+        --nan対策
+        seatYawControl = seatYawControl ~= seatYawControl and 0 or seatYawControl
     end
     
     --一人称視点フラグ
@@ -625,4 +636,8 @@ end
 
 function onDraw()
     is1P = true
+
+    --for debug
+    screen.setColor(0, 255, 0)
+    screen.drawText(0, 0, debug)
 end
