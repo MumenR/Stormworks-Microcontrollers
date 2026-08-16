@@ -40,26 +40,11 @@ end
 -- try require("Folder.Filename") to include code from another file in this, so you can store code in libraries
 -- the "LifeBoatAPI" is included by default in /_build/libs/ - you can use require("LifeBoatAPI") to get this, and use all the LifeBoatAPI.<functions>!
 
+
 require("required")
-
-SEAT_STABI_T = 7.5
-SEAT_STABI_P = 8
-SEAT_STABI_D = 15
-SEAT_PIVOT = 32/5
-
-LASER_STABI_T = 4
-LASER_DELAY = 4
-
-GND_OFST = -2       --地面判定は標的のn[m]下に向けて行う
-TGT_ALT = 0.01      --標的の高さがn[m]以上で目標と判定
-TGT_PRED_DELAY = 0  --n[tick]後の未来位置を予測
-TRC_END_TICK = 200  --n[tick]以上検出しなかったら追尾終了
-TGT_RADIUS_GAIN = 1.05
 
 gain1 = {0.1, 0.002, 0.00001}
 gain2 = {0.3, 0.01, 0.0005}
-
-SLERP_T = 0.05
 
 --関数
 do
@@ -79,10 +64,6 @@ do
             sum = sum + (x[i] - y[i])^2
         end
         return math.sqrt(sum)
-    end
-
-    function same_rotation(x)
-        return (x + 0.5)%1 - 0.5
     end
 
     ---@param Wx number 自身の位置[m]
@@ -136,24 +117,6 @@ do
         return x, y, z
     end
 
-    seatYawES, seatYawEP = 0, 0
-    seatPitchES, seatPitchEP = 0, 0
-
-    --PID制御
-    function PID(P, I, D, target, current, errorSumPre, errorPre, min, max)
-        local error, errorSum, errorDiff, control
-        error = target - current
-        errorSum = math.abs(error) < 5/360 and errorSumPre + error or errorSumPre
-        errorDiff = error - errorPre
-        control = P*error + I*errorSum + D*errorDiff
-
-        if control > max or control < min then
-            errorSum = errorSumPre
-            control = P*error + I*errorSum + D*errorDiff
-        end
-        return clamp(control, min, max), errorSum, error
-    end
-
     --２つのベクトルから法線ベクトルを算出(gndが基準)
     function calNomVec(a, b, gnd)
         x1, y1, z1 = TUP(a)
@@ -168,7 +131,7 @@ do
         }
         nx, ny, nz = TUP(nom)
         --正規化
-        len = distVec(nom, {0, 0, 0})
+        len = math.sqrt(nx*nx + ny*ny + nz*nz)
         if len > 0 then
             nom = {nx/len, ny/len, nz/len}
         end
@@ -206,7 +169,7 @@ do
 end
 
 t = 0
-pitchPrev, yawPrev = 0, 0
+seatYawEP = 0
 seatLosQtPrev = {0, 0, 0, 1}
 lasDirec = {{0, 0, 0, 0, 0, 0, 0, 0}}
 lasQtBuf = {{0, 0, 0, 1}}
@@ -214,7 +177,6 @@ trackInPre = false
 seatResetPre = false
 isTracking = false
 is1P = false
-GNDCorrectionT = 0
 trackT = 0
 notHitT = 0
 lasDirecSet = {}    --出力するヨー、ピッチ
@@ -269,10 +231,10 @@ function onTick()
             end
             theta = math.acos(dot)          --必要回転角度
             if theta > 0.0001 then          --０除算対策
-                e = math.sin((1 - SLERP_T)*theta)/math.sin(theta)
-                f = math.sin(SLERP_T*theta)/math.sin(theta)
+                e = math.sin(0.95*theta)/math.sin(theta)
+                f = math.sin(0.05*theta)/math.sin(theta)
             else
-                e, f = (1 - SLERP_T), SLERP_T
+                e, f = 0.95, 0.05
             end
             x = e*a + f*x
             y = e*b + f*y
@@ -315,7 +277,7 @@ function onTick()
             end
 
             --t[tick]後の未来位置へ
-            Wx, Wy, Wz = rotateRv(math.sin(seatTGTAzi*pi2), math.cos(seatTGTAzi*pi2), 0, bodWrvx, bodWrvz, bodWrvy, SEAT_STABI_T)
+            Wx, Wy, Wz = rotateRv(math.sin(seatTGTAzi*pi2), math.cos(seatTGTAzi*pi2), 0, bodWrvx, bodWrvz, bodWrvy, 7.5)
             --ローカル座標変換
             ex, ey, ez = world2Local(0, 0, 1, 0, 0, 0, bodQt)  --Z軸単位ベクトル
             Lx, Ly, Lz = world2Local(Wx, Wy, Wz, 0, 0, 0, bodQt)
@@ -374,7 +336,7 @@ function onTick()
                 isGndExist = lasDist[2] ~= 0 and lasDist[2] ~= 4000 and lasDist[2] < lasDist[1]
                 
             --追尾終了判定
-            elseif (isTracking and trackPulse) or lasDist[1] == 0 or notHitT > TRC_END_TICK then
+            elseif (isTracking and trackPulse) or lasDist[1] == 0 or notHitT > 200 then
                 isTracking = false
             end
 
@@ -388,7 +350,7 @@ function onTick()
                     Wx, Wy, Wz = TUP(lasPoint[i])
                     alt = (Wx - gnd[1])*nom[1] + (Wy - gnd[2])*nom[2] + (Wz - gnd[3])*nom[3]    --対地高度
                     error = distVec(lasPoint[i], nextLas)                                       --照射点と予測座標の距離
-                    hit = error < TGTRadius*3 and (alt > TGT_ALT or not isGndExist)
+                    hit = error < TGTRadius*3 and (alt > 0.01 or not isGndExist)
                     if hit then
                         hitN, avgX, avgY, avgZ = hitN + 1, avgX + Wx, avgY + Wy, avgZ + Wz
                         hitSum = hitSum + 1
@@ -423,7 +385,7 @@ function onTick()
                     aimPitch = math.atan(nlZ - posZ, math.sqrt((nlX - posX)^2 + (nlY - posY)^2))
                     aimQt = mulQt({math.sin(aimPitch/2), 0, 0, math.cos(aimPitch/2)}, {0, 0, math.sin(aimYaw/2), math.cos(aimYaw/2)})
                     Wx, Wy, Wz = local2World(x, 0, z, nlX, nlY, nlZ, aimQt)
-                    pitch, yaw = stabilizer2(posX, posY, posZ, lasQt, lasLvx, lasLvy, lasLvz, lasWrvx, lasWrvy, lasWrvz, Wx, Wy, Wz, nextLas[4], nextLas[5], nextLas[6], LASER_STABI_T)
+                    pitch, yaw = stabilizer2(posX, posY, posZ, lasQt, lasLvx, lasLvy, lasLvz, lasWrvx, lasWrvy, lasWrvz, Wx, Wy, Wz, nextLas[4], nextLas[5], nextLas[6], 4)
                     lasDirecSet[lasIndex*2 - 1], lasDirecSet[lasIndex*2] = yaw, pitch
                 end
 
@@ -433,13 +395,8 @@ function onTick()
 
                 --レーザ１は中心、地面
                 if isGndExist then
-                    local p = ({
-                        {0, 0},
-                        {0, gndOfstZ},
-                        {0.1, gndOfstZ},
-                        {0, gndOfstZ - 0.1}
-                    })[trackT%4+1]
-                    setPiYa(p[1], p[2], 1)
+                    i = trackT%4
+                    setPiYa(i == 2 and 0.1 or 0, i == 0 and 0 or i == 3 and gndOfstZ - 0.1 or gndOfstZ, 1)
                 else    --地面がないときは中心
                     setPiYa(0, 0, 1)
                 end
@@ -460,30 +417,30 @@ function onTick()
                 setPiYa(x, z, 4)
 
                 --地面とターゲットサイズ更新
-                if trackT > LASER_DELAY then
-                    if (trackT - LASER_DELAY)%4 == 1 then
+                if trackT > 4 then
+                    if (trackT - 4)%4 == 1 then
                         --基準座標
                         gnd = copyTable(lasPoint[1])
-                    elseif (trackT - LASER_DELAY)%4 == 2 then
+                    elseif (trackT - 4)%4 == 2 then
                         --地面座標１を保持
                         gnd1 = copyTable(lasPoint[1])
-                    elseif (trackT - LASER_DELAY)%4 == 3 then
+                    elseif (trackT - 4)%4 == 3 then
                         --地面座標２と地面座標１を使い、法線ベクトルを算出
                         nom = calNomVec(lasPoint[1], gnd1, gnd)
                     end
 
                     --ヒット率に基づき半径を更新
-                    if (trackT - LASER_DELAY)%8 == 0 then
+                    if (trackT - 4)%8 == 0 then
                         if isHit[1] then
                             if hitSum/26 > 0.3 then
-                                TGTRadius = TGTRadius*TGT_RADIUS_GAIN
+                                TGTRadius = TGTRadius*1.05
                             elseif hitSum/26 < 0.15 then
-                                TGTRadius = TGTRadius/TGT_RADIUS_GAIN
+                                TGTRadius = TGTRadius/1.05
                             end
                         end
                         hitSum = 0
                     end
-                elseif trackT == LASER_DELAY then
+                elseif trackT == 4 then
                     nom = calNomVec(lasPoint[1], lasPoint[2], gnd)
                 end
 
@@ -501,12 +458,12 @@ function onTick()
                     losWx, losWy, losWz = local2World(Lx, Ly, Lz, FPSPos[1], FPSPos[2], FPSPos[3], seatQt)
                 end
 
-                las1pitch, las1yaw = stabilizer2(lasPos[1][1], lasPos[1][2], lasPos[1][3], lasQt, lasLvx, lasLvy, lasLvz, lasWrvx, lasWrvy, lasWrvz, losWx, losWy, losWz, 0, 0, 0, LASER_STABI_T)
+                las1pitch, las1yaw = stabilizer2(lasPos[1][1], lasPos[1][2], lasPos[1][3], lasQt, lasLvx, lasLvy, lasLvz, lasWrvx, lasWrvy, lasWrvz, losWx, losWy, losWz, 0, 0, 0, 4)
                 gndOfstZ = -TGT_RADIUS0
                 theta = math.atan(lasPos[2][2] - losWy, lasPos[2][1] - losWx)
                 gndOfstX = math.cos(theta)*TGT_RADIUS0*2
                 gndOfstY = math.sin(theta)*TGT_RADIUS0*2
-                las2pitch, las2yaw = stabilizer2(lasPos[2][1], lasPos[2][2], lasPos[2][3], lasQt, lasLvx, lasLvy, lasLvz, lasWrvx, lasWrvy, lasWrvz, losWx + gndOfstX, losWy + gndOfstY, losWz + gndOfstZ, 0, 0, 0, LASER_STABI_T)
+                las2pitch, las2yaw = stabilizer2(lasPos[2][1], lasPos[2][2], lasPos[2][3], lasQt, lasLvx, lasLvy, lasLvz, lasWrvx, lasWrvy, lasWrvz, losWx + gndOfstX, losWy + gndOfstY, losWz + gndOfstZ, 0, 0, 0, 4)
                 lasDirecSet = {las1yaw, las1pitch, las2yaw, las2pitch, 0, 0, 0, 0}
             end
         end
@@ -531,9 +488,9 @@ function onTick()
         --18~22
 
         --SRD3
-        OUN(23, TGT[1])
-        OUN(24, TGT[2])
-        OUN(25, TGT[3])
+        for i = 1, 3 do
+            OUN(22 + i, TGT[i])
+        end
         OUN(26, ID)
 
         --レーザ方向の遅延
@@ -541,7 +498,7 @@ function onTick()
             table.insert(lasDirec, copyTable(lasDirecSet))
             table.insert(lasQtBuf, copyTable(lasQt))
 
-            if #lasDirec > LASER_DELAY then
+            if #lasDirec > 4 then
                 table.remove(lasDirec, 1)
                 table.remove(lasQtBuf, 1)
             end
@@ -554,8 +511,10 @@ function onTick()
 
     --シートピボットのPID制御
     do
-        seatYawControl, seatYawES, seatYawEP = PID(SEAT_STABI_P, 0, SEAT_STABI_D, 0, -same_rotation(seatIdealYaw - seatCntYaw), seatYawES, seatYawEP, -100, 100)
-        seatYawControl = clamp(seatYawControl*SEAT_PIVOT, -10, 10)
+        error = (seatIdealYaw - seatCntYaw + 0.5)%1 - 0.5
+        seatYawControl = 8*error + 15*(error - seatYawEP)
+        seatYawEP = error
+        seatYawControl = clamp(seatYawControl*6.4, -10, 10)
         --nan対策
         seatYawControl = seatYawControl ~= seatYawControl and 0 or seatYawControl
     end

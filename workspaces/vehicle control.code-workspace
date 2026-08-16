@@ -51,6 +51,14 @@
         {
             "name": "libs",
             "path": "../libs"
+        },
+        {
+            "name": "prompts",
+            "path": "../prompts"
+        },
+        {
+            "name": "workspaces",
+            "path": "../workspaces"
         }
 	]
 }

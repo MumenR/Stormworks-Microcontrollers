@@ -40,7 +40,16 @@ end
 -- try require("Folder.Filename") to include code from another file in this, so you can store code in libraries
 -- the "LifeBoatAPI" is included by default in /_build/libs/ - you can use require("LifeBoatAPI") to get this, and use all the LifeBoatAPI.<functions>!
 
-require("required")
+
+INN = input.getNumber
+INB = input.getBool
+OUN = output.setNumber
+OUB = output.setBool
+PRN = property.getNumber
+PRB = property.getBool
+PRT = property.getText
+TUP = table.unpack
+pi2 = math.pi*2
 
 SEAT_STABI_T = 7.5
 SEAT_STABI_P = 8
@@ -63,6 +72,59 @@ SLERP_T = 0.05
 
 --関数
 do
+    --左手系でXYZ順オイラー角から右手系クォータニオンへ変換
+    function euler2Qt(LEx, LEy, LEz)
+        return mulQt({0, math.sin(-LEz/2), 0, math.cos(-LEz/2)}, mulQt({0, 0, math.sin(-LEy/2), math.cos(-LEy/2)}, {math.sin(-LEx/2), 0, 0, math.cos(-LEx/2)}))
+    end
+
+    --クォータニオンの掛け算(q:回転, p: 姿勢)
+    function mulQt(q, p)
+        local a, b, c, d = TUP(q)
+        local x, y, z, w = TUP(p)
+        return {
+            d*x - c*y + b*z + a*w,
+            c*x + d*y - a*z + b*w,
+            -b*x + a*y + d*z + c*w,
+            -a*x - b*y - c*z + d*w
+        }
+    end
+
+    --ローカル座標からワールド座標へ
+    function local2World(Lx, Ly, Lz, myWx, myWy, myWz, q)
+        local x, y, z = TUP(mulQt(q, mulQt({Lx, Ly, Lz, 0}, {-q[1], -q[2], -q[3], q[4]})))
+        return x + myWx, y + myWy, z + myWz
+    end
+
+    --ワールド座標からローカル座標へ
+    function world2Local(Wx, Wy, Wz, myWx, myWy, myWz, q)
+        return TUP(mulQt({-q[1], -q[2], -q[3], q[4]}, mulQt({Wx - myWx, Wy - myWy, Wz - myWz, 0}, q)))
+    end
+
+    --ローカル座標からローカル極座標へ変換(return pitch, yaw)
+    function rect2Polar(x, y, z, radian_bool)
+        local pitch, yaw
+        pitch = math.atan(z, math.sqrt(x*x + y*y))
+        yaw = math.atan(x, y)
+        if radian_bool then
+            return pitch, yaw
+        else
+            return pitch/pi2, yaw/pi2
+        end
+    end
+
+    --極座標から直交座標へ変換(Z軸優先)
+    function polar2Rect(pitch, yaw, distance, radian_bool)
+        local x, y, z
+        if not radian_bool then
+            pitch = pitch*pi2
+            yaw = yaw*pi2
+        end
+        x = distance*math.cos(pitch)*math.sin(yaw)
+        y = distance*math.cos(pitch)*math.cos(yaw)
+        z = distance*math.sin(pitch)
+        return x, y, z
+    end
+
     function clamp(x, min, max)
         if x >= max then
             x = max
@@ -70,6 +132,12 @@ do
             x = min
         end
         return x
+    end
+
+    --カンマ区切り3つの文字列を数字に変換し、オフセット
+    function offset(PRTName, Wx, Wy, Wz, Qt)
+        offsetX, offsetY, offsetZ = string.match(PRT(PRTName), "([^,]+),([^,]+),([^,]+)")
+        return {local2World(tonumber(offsetX), tonumber(offsetY), tonumber(offsetZ), Wx, Wy, Wz, Qt)}
     end
 
     --ベクトル同士の距離
