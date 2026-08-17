@@ -211,34 +211,81 @@ function onDraw()
 
     --ピッチ角度線
     if show_attitude then
+        --座席・視点回転を合成し、ピッチ線用の逆回転行列を一度だけ作る
+        local sx, sy, sz, sw = seatQt[1], seatQt[2], seatQt[3], seatQt[4]
+        local ex, ey, ez, ew = eyeQt[1], eyeQt[2], eyeQt[3], eyeQt[4]
+        local qx = sw*ex - sz*ey + sy*ez + sx*ew
+        local qy = sz*ex + sw*ey - sx*ez + sy*ew
+        local qz = -sy*ex + sx*ey + sw*ez + sz*ew
+        local qw = -sx*ex - sy*ey - sz*ez + sw*ew
+        local m11, m12, m13 = 1 - 2*(qy*qy + qz*qz), 2*(qx*qy + qz*qw), 2*(qx*qz - qy*qw)
+        local m21, m22, m23 = 2*(qx*qy - qz*qw), 1 - 2*(qx*qx + qz*qz), 2*(qy*qz + qx*qw)
+        local m31, m32, m33 = 2*(qx*qz + qy*qw), 2*(qy*qz - qx*qw), 1 - 2*(qx*qx + qy*qy)
+        local cc, sc = math.cos(compass), math.sin(compass)
+        local ax = m11*cc + m12*sc
+        local ay = m21*cc + m22*sc
+        local az = m31*cc + m32*sc
+        local tx, ty, tz = -m11*sc + m12*cc, -m21*sc + m22*cc, -m31*sc + m32*cc
+        local cx, cy, scale = w/2, h/2, (h/2)/math.tan(FOV_H/2)
+        local sin5, cos5 = 0.087155742747658, 0.996194698091746
+        local sin12, cos12 = 0.207911690817759, 0.978147600733806
+        local sin16, cos16 = 0.275637355816999, 0.961261695938319
+
         --ピッチ角の刻み
         for i = attitudeMinAngle, 175, attitudeMinAngle do
-            --左右対称
-            for j = -1, 1, 2 do
-                --上下対称
-                for k = -1, 1, 2 do
-                    optionQt = euler2QtR(-pi2*k*i/360, 0, -compass)
-                    --線
-                    x1, y1, forward1, drawable1 = worldPolar2Display(0, j*12/360, optionQt, seatQt, eyeQt)
-                    x2, y2, forward2, drawable2 = worldPolar2Display(0, j*5/360, optionQt, seatQt, eyeQt)
-                    x3, y3, forward3, drawable3 = worldPolar2Display(0, j*12/360, euler2QtR(-pi2*k*(i - 1)/360, 0, -compass), seatQt, eyeQt)
-                    --角度
-                    x4, y4, forward4, drawable4 = worldPolar2Display(0, j*16/360, optionQt, seatQt, eyeQt)
-            
-                    if forward1 and forward2 and forward3 and forward4 then
-                        if drawable1 or drawable2 then
-                            if k == 1 then
-                                screen.drawLine(x1, y1, x2, y2)
-                            else
-                                drawDottedLine(x2, y2, x1, y1)
+            local sinI, cosI = math.sin(pi2*i/360), math.cos(pi2*i/360)
+            local sinCap, cosCap = math.sin(pi2*(i - 1)/360), math.cos(pi2*(i - 1)/360)
+            --上下対称
+            for k = -1, 1, 2 do
+                local sinA = -k*sinI
+                local bx, by, bz = tx*cosI - m13*sinA, ty*cosI - m23*sinA, tz*cosI - m33*sinA
+                local capSin = -k*sinCap
+                local capBx = tx*cosCap - m13*capSin
+                local capBy = ty*cosCap - m23*capSin
+                local capBz = tz*cosCap - m33*capSin
+
+                --左右対称
+                for j = -1, 1, 2 do
+                    --worldPolar2Displayを展開し、テーブル生成と関数呼び出しを省略
+                    local lx1 = ax*j*sin12 + bx*cos12
+                    local ly1 = ay*j*sin12 + by*cos12
+                    local lz1 = az*j*sin12 + bz*cos12
+
+                    if ly1 > 0 then
+                        local x1, y1 = cx + lx1/ly1*scale, cy - lz1/ly1*scale
+                        local drawable1 = x1 >= 0 and x1 <= w and y1 >= 0 and y1 <= h
+                        local lx2 = ax*j*sin5 + bx*cos5
+                        local ly2 = ay*j*sin5 + by*cos5
+                        local lz2 = az*j*sin5 + bz*cos5
+                        local lx3 = ax*j*sin12 + capBx*cos12
+                        local ly3 = ay*j*sin12 + capBy*cos12
+                        local lz3 = az*j*sin12 + capBz*cos12
+                        local lx4 = ax*j*sin16 + bx*cos16
+                        local ly4 = ay*j*sin16 + by*cos16
+                        local lz4 = az*j*sin16 + bz*cos16
+
+                        if ly2 > 0 and ly3 > 0 and ly4 > 0 then
+                            local x2, y2 = cx + lx2/ly2*scale, cy - lz2/ly2*scale
+                            local x3, y3 = cx + lx3/ly3*scale, cy - lz3/ly3*scale
+                            local x4, y4 = cx + lx4/ly4*scale, cy - lz4/ly4*scale
+                            local drawable2 = x2 >= 0 and x2 <= w and y2 >= 0 and y2 <= h
+                            local drawable3 = x3 >= 0 and x3 <= w and y3 >= 0 and y3 <= h
+                            if drawable1 or drawable2 then
+                                if k == 1 then
+                                    screen.drawLine(x1, y1, x2, y2)
+                                else
+                                    drawDottedLine(x2, y2, x1, y1, 2)
+                                end
+                            end
+                            if drawable1 or drawable3 then
+                                screen.drawLine(x1, y1, x3, y3)
+                            end
+                            if x4 >= 0 and x4 <= w and y4 >= 0 and y4 <= h then
+                                screen.drawText(x4 - 2.5*#tostring(k*i), y4 - 3, k*i)
                             end
                         end
-                        if drawable1 or drawable3 then
-                            screen.drawLine(x1, y1, x3, y3)
-                        end
-                        if drawable4 then
-                            screen.drawText(x4 - 2.5*#tostring(k*i), y4 - 3, k*i)
-                        end
+                    else
+                        break
                     end
                 end
             end
