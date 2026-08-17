@@ -47,7 +47,7 @@ FOV_H = (58/360)*pi2
 
 function onTick()
     seatQt = euler2Qt(INN(30), INN(31), INN(32))
-    pos = offset("Eye offset xyz", {INN(27), INN(29), INN(28)}, seatQt)
+    pos = offset("Eye offset xyz", INN(27), INN(29), INN(28), seatQt)
     eyeQt = euler2Qt(-INN(10)*pi2, INN(9)*pi2, 0)
 
     delete_tick = PRN("Radar delete tick")

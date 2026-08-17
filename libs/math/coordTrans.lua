@@ -1,5 +1,6 @@
 require("math.qt")
 require("required")
+require("math.vector")
 
 ---@class coordinate
 ---@field [1] number
@@ -81,11 +82,33 @@ end
 ---@section offset
 ---カンマ区切り3つの文字列を数字に変換し、オフセット
 ---@param PRTName string オフセット取得用プロパティ名
----@param Wxyz coordinate ワールド座標
+---@param Wx number ワールド座標のX成分
+---@param Wy number ワールド座標のY成分
+---@param Wz number ワールド座標のZ成分
 ---@param Qt quaternion クォータニオン
 ---@return coordinate xyz xyz座標のテーブル
-function offset(PRTName, Wxyz, Qt)
+function offset(PRTName, Wx, Wy, Wz, Qt)
     local offsetX, offsetY, offsetZ = string.match(PRT(PRTName), "([^,]+),([^,]+),([^,]+)")
-    return local2World({tonumber(offsetX), tonumber(offsetY), tonumber(offsetZ)}, Wxyz, Qt)
+    return local2World({tonumber(offsetX), tonumber(offsetY), tonumber(offsetZ)}, {Wx, Wy, Wz}, Qt)
+end
+---@endsection
+
+---@section rotateRv
+---位置ベクトルを角速度rv[rad/tick]でt[tick]回転させる
+---@param xyz coordinate 位置ベクトル
+---@param Rvxyz coordinate 角速度ベクトル
+---@param t number 回転させる時間[tick]
+---@return coordinate xyz 回転後の位置ベクトル
+function rotateRv(xyz, Rvxyz, t)
+    local abs, h, s, p
+    abs = vecDist(Rvxyz, ZERO3)
+    if abs > 0 then
+        h = abs*t/2
+        s = math.sin(h)/abs
+        p = mulQt({Rvxyz[1]*s, Rvxyz[2]*s, Rvxyz[3]*s, math.cos(h)}, mulQt({xyz[1], xyz[2], xyz[3], 0}, {-Rvxyz[1]*s, -Rvxyz[2]*s, -Rvxyz[3]*s, math.cos(h)}))
+        return {p[1], p[2], p[3]}
+    else
+        return xyz
+    end
 end
 ---@endsection

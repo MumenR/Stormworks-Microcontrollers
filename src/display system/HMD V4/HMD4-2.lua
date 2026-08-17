@@ -112,8 +112,8 @@ function onTick()
         distMaxDigits = clamp(maxDigits(150000, dist_unit), 3, 100)
 
         seatQt = euler2Qt(INN(4), INN(5), INN(6))
-        pos = offset("Eye offset xyz", {INN(1), INN(3), INN(2)}, seatQt)
-        Vxyz = {INN(7), INN(8), INN(11)}
+        pos = offset("Eye offset xyz", INN(1), INN(3), INN(2), seatQt)
+        Vxyz = {INN(7), INN(11), INN(8)}
 
         eyeQt = euler2Qt(-INN(10)*pi2, INN(9)*pi2, 0)
 

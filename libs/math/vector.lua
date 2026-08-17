@@ -42,6 +42,20 @@ function vecMulScalar1(v, s)
 end
 ---@endsection
 
+---@section vecDot1
+---1次元ベクトル同士の内積
+---@param x number[] ベクトル1
+---@param y number[] ベクトル2
+---@return number dot 内積
+function vecDot1(x, y)
+    local dot = 0
+    for i = 1, #x do
+        dot = dot + x[i]*y[i]
+    end
+    return dot
+end
+---@endsection
+
 ---@section vecDist
 ---ベクトル同士の距離
 ---@param x number[] ベクトル1

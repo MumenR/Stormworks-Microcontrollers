@@ -28,3 +28,11 @@ pi2 = math.pi*2
 ---@section ZERO3
 ZERO3 = {0, 0, 0}
 ---@endsection
+
+---@section copyTable
+---@param x table コピー元のテーブル
+---@return table copy コピーしたテーブル
+function copyTable(x)
+    return {TUP(x)}
+end
+---@endsection
