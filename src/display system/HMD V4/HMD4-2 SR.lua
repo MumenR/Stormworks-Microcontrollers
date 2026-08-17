@@ -40,16 +40,10 @@ require("math.math")
 require("math.coordTrans")
 require("screen.coordTrans")
 require("screen.draw")
+require("math.vector")
 
 data = {}
 FOV_H = (58/360)*pi2
-
-
---距離
-function distance3(a, b)
-    local dx, dy, dz = a[1] - b[1], a[2] - b[2], a[3] - b[3]
-    return math.sqrt(dx*dx + dy*dy + dz*dz)
-end
 
 --SRD3マーク描画用関数
 function drawSRD3(pixX, pixY, shapeNo, colorNo, addStaticNo, addDynamicNo, t)
@@ -249,7 +243,7 @@ function onDraw()
 
             --距離数値
             if show_radar_dist then
-                local tgt_dist = distance3(pos, tgt.xyz)*dist_unit
+                local tgt_dist = vecDist(pos, tgt.xyz)*dist_unit
                 local TGTd
                 if tgt_dist >= 10 then
                     TGTd = string.format("%.0f", math.floor(tgt_dist + 0.5))

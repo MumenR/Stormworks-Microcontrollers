@@ -26,9 +26,9 @@ function drawDottedLine(x1, y1, x2, y2)
     end
 
     dx, dy = dx/len, dy/len
-    for i = 0, len, 2 do
+    for i = 0, len, 4 do
         local sx, sy = x1 + dx*i, y1 + dy*i
-        local ex, ey = x1 + dx*math.min(i + 1, len), y1 + dy*math.min(i + 1, len)
+        local ex, ey = x1 + dx*math.min(i + 2, len), y1 + dy*math.min(i + 2, len)
         if canDraw(sx, sy) or canDraw(ex, ey) then
             screen.drawLine(sx, sy, ex, ey)
         end

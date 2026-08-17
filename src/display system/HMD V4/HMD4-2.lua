@@ -217,11 +217,11 @@ function onDraw()
             for j = -1, 1, 2 do
                 --上下対称
                 for k = -1, 1, 2 do
-                    optionQt = euler2QtR(pi2*k*i/360, 0, -compass)
+                    optionQt = euler2QtR(-pi2*k*i/360, 0, -compass)
                     --線
                     x1, y1, forward1, drawable1 = worldPolar2Display(0, j*12/360, optionQt, seatQt, eyeQt)
                     x2, y2, forward2, drawable2 = worldPolar2Display(0, j*5/360, optionQt, seatQt, eyeQt)
-                    x3, y3, forward3, drawable3 = worldPolar2Display(0, j*12/360, euler2QtR(pi2*k*(i - 1)/360, 0, -compass), seatQt, eyeQt)
+                    x3, y3, forward3, drawable3 = worldPolar2Display(0, j*12/360, euler2QtR(-pi2*k*(i - 1)/360, 0, -compass), seatQt, eyeQt)
                     --角度
                     x4, y4, forward4, drawable4 = worldPolar2Display(0, j*16/360, optionQt, seatQt, eyeQt)
             
