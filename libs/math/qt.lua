@@ -15,6 +15,17 @@ function euler2Qt(LEx, LEy, LEz)
 end
 ---@endsection
 
+---@section euler2QtR
+---右手系でZXY順オイラー角から右手系クォータニオンへ変換
+---@param REx number 右手系Xオイラー角
+---@param REy number 右手系Yオイラー角
+---@param REz number 右手系Zオイラー角
+---@return quaternion Qt 姿勢クォータニオン
+function euler2QtR(REx, REy, REz)
+    return mulQt({0, math.sin(REy/2), 0, math.cos(REy/2)}, mulQt({math.sin(REx/2), 0, 0, math.cos(REx/2)}, {0, 0, math.sin(REz/2), math.cos(REz/2)}))
+end
+---@endsection
+
 ---@section mulQt
 ---クォータニオンの掛け算(q:回転, p: 姿勢)
 ---@param q quaternion 回転クォータニオン

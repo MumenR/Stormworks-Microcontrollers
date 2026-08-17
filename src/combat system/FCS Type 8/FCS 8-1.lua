@@ -41,6 +41,8 @@ end
 -- the "LifeBoatAPI" is included by default in /_build/libs/ - you can use require("LifeBoatAPI") to get this, and use all the LifeBoatAPI.<functions>!
 
 require("required")
+require("math.math")
+require("math.vector")
 
 SEAT_STABI_T = 7.5
 SEAT_STABI_P = 8
@@ -63,24 +65,6 @@ SLERP_T = 0.05
 
 --関数
 do
-    function clamp(x, min, max)
-        if x >= max then
-            x = max
-        elseif x <= min then
-            x = min
-        end
-        return x
-    end
-
-    --ベクトル同士の距離
-    function distVec(x, y)
-        sum = 0
-        for i = 1, #x do
-            sum = sum + (x[i] - y[i])^2
-        end
-        return math.sqrt(sum)
-    end
-
     function same_rotation(x)
         return (x + 0.5)%1 - 0.5
     end
@@ -152,31 +136,6 @@ do
             control = P*error + I*errorSum + D*errorDiff
         end
         return clamp(control, min, max), errorSum, error
-    end
-
-    --２つのベクトルから法線ベクトルを算出(gndが基準)
-    function calNomVec(a, b, gnd)
-        x1, y1, z1 = TUP(a)
-        x2, y2, z2 = TUP(b)
-        gndX, gndY, gndZ = TUP(gnd)
-        x1, y1, z1 = x1 - gndX, y1 - gndY, z1 - gndZ
-        x2, y2, z2 = x2 - gndX, y2 - gndY, z2 - gndZ
-        nom = {
-            y1*z2 - z1*y2,
-            z1*x2 - x1*z2,
-            x1*y2 - y1*x2
-        }
-        nx, ny, nz = TUP(nom)
-        --正規化
-        len = distVec(nom, {0, 0, 0})
-        if len > 0 then
-            nom = {nx/len, ny/len, nz/len}
-        end
-        --上下逆なら反転
-        if nz < 0 then
-            nom = {-nom[1], -nom[2], -nom[3]}
-        end
-        return nom
     end
 
     --α-β-γフィルタ(z: 観測値, x:状態量, gain: α-β-γフィルタのゲイン, N: 同時観測数)
@@ -333,10 +292,10 @@ function onTick()
                 if lasDist[2] == 4000 then
                     losDist = 300
                 else
-                    losDist = distVec(lasPoint[2], pos)
+                    losDist = vecDist(lasPoint[2], pos)
                 end
             else
-                losDist = distVec(lasPoint[1], pos)
+                losDist = vecDist(lasPoint[1], pos)
             end
 
             --ワールド視線方向
@@ -387,7 +346,7 @@ function onTick()
                 for i = 1, 4 do
                     Wx, Wy, Wz = TUP(lasPoint[i])
                     alt = (Wx - gnd[1])*nom[1] + (Wy - gnd[2])*nom[2] + (Wz - gnd[3])*nom[3]    --対地高度
-                    error = distVec(lasPoint[i], nextLas)                                       --照射点と予測座標の距離
+                    error = vecDist(lasPoint[i], nextLas)                                       --照射点と予測座標の距離
                     hit = error < TGTRadius*3 and (alt > TGT_ALT or not isGndExist)
                     if hit then
                         hitN, avgX, avgY, avgZ = hitN + 1, avgX + Wx, avgY + Wy, avgZ + Wz
@@ -469,7 +428,7 @@ function onTick()
                         gnd1 = copyTable(lasPoint[1])
                     elseif (trackT - LASER_DELAY)%4 == 3 then
                         --地面座標２と地面座標１を使い、法線ベクトルを算出
-                        nom = calNomVec(lasPoint[1], gnd1, gnd)
+                        nom = vecNorm(lasPoint[1], gnd1, gnd)
                     end
 
                     --ヒット率に基づき半径を更新
@@ -484,7 +443,7 @@ function onTick()
                         hitSum = 0
                     end
                 elseif trackT == LASER_DELAY then
-                    nom = calNomVec(lasPoint[1], lasPoint[2], gnd)
+                    nom = vecNorm(lasPoint[1], lasPoint[2], gnd)
                 end
 
                 trackT = trackT + 1

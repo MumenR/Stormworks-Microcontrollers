@@ -23,17 +23,17 @@
 VS Code拡張コマンド`lifeboatapi.build`はPowerShellから直接実行できない。Codexから実行する場合は、VS Code拡張`REST Control`を経由してVS Code内でコマンドを呼ぶ。
 
 1. VS Codeで対象プロジェクトを開く
-1. REST Controlの待受ポートは通常`52428`を使う。この環境ではVS Code左下のステータスバーに`RC Port: 52428`と表示されている
+1. REST Controlの待受ポートは通常`37100`を使う。この環境ではVS Code左下のステータスバーに`RC Port: 37100`と表示されている
 1. PowerShellからREST Controlへ疎通確認する
 
 ```powershell
-Invoke-RestMethod -Uri "http://127.0.0.1:52428" -Method Post -ContentType "application/json" -Body '{"command":"custom.workspaceFolders"}'
+Invoke-RestMethod -Uri "http://127.0.0.1:37100" -Method Post -ContentType "application/json" -Body '{"command":"custom.workspaceFolders"}'
 ```
 
 1. 対象LuaファイルをVS Codeのアクティブエディタにしてから`lifeboatapi.build`を実行する。LifeBoatAPIはアクティブエディタから現在のworkspaceを決めるため、先に対象ファイルを開くこと
 
 ```powershell
-$port = 52428
+$port = 37100
 $target = "C:/Users/yosuk/OneDrive/Stormworks/Microcontrollers/src/combat system/FCS Type 8/FCS 8-1.lua"
 $code = "vscode.workspace.openTextDocument(vscode.Uri.file('$target')).then(doc=>vscode.window.showTextDocument(doc)).then(()=>vscode.commands.executeCommand('lifeboatapi.build'))"
 $body = @{ command = 'custom.eval'; args = @($code) } | ConvertTo-Json -Depth 10 -Compress
@@ -46,7 +46,7 @@ Invoke-RestMethod -Uri "http://127.0.0.1:$port" -Method Post -ContentType "appli
 Get-Item "C:/Users/yosuk/OneDrive/Stormworks/Microcontrollers/src/combat system/FCS Type 8/_build/out/release/fcs 8-1.lua" | Format-List FullName,LastWriteTime,Length
 ```
 
-- `52428`で接続できない場合は、VS Code左下の`RC Port`が変わっている可能性がある。その場合だけユーザーに現在の`RC Port`を確認する
+- `37100`で接続できない場合は、VS Code左下の`RC Port`が変わっている可能性がある。その場合だけ処理を中断し、ユーザーに現在の`RC Port`を確認する
 - REST Controlは`restRemoteControl.port`が未設定の場合、workspace pathからポートを選ぶ。通常は同じworkspaceなら同じ値になるが、ポート衝突や設定変更があると変わる可能性がある
 - `custom.eval`を使う理由は、REST Controlの通常コマンド引数では`Uri`型変換がうまく渡らない場合があるため
 - `_build/_build.lua`をPowerShellから直接Lua実行するのは、VS Code拡張の実行環境と一致せず、正しいminify結果にならない場合がある

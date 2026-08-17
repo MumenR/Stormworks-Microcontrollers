@@ -15,6 +15,7 @@ do
     simulator = simulator
     simulator:setScreen(1, "3x3")
     simulator:setProperty("ExampleNumberProperty", 123)
+    simulator:setProperty("Eye offset xyz", "0,0,0")
 
     -- Runs every tick just before onTick; allows you to simulate the inputs changing
     ---@param simulator Simulator Use simulator:<function>() to set inputs etc.
@@ -34,142 +35,31 @@ end
 -- try require("Folder.Filename") to include code from another file in this, so you can store code in libraries
 -- the "LifeBoatAPI" is included by default in /_build/libs/ - you can use require("LifeBoatAPI") to get this, and use all the LifeBoatAPI.<functions>!
 
-INN = input.getNumber
-INB = input.getBool
-OUN = output.setNumber
-OUB = output.setBool
-PRN = property.getNumber
-PRB = property.getBool
+require("required")
+require("math.math")
+require("math.coordTrans")
+require("screen.coordTrans")
+require("screen.draw")
 
 data = {}
-pi2 = math.pi*2
-fov_h = (58/360)*pi2
+FOV_H = (58/360)*pi2
 
-function distance3(x1, y1, z1, x2, y2, z2)
-    return math.sqrt((x1 - x2)^2 + (y1 - y2)^2 + (z1 - z2)^2)
-end
 
---ワールド座標からローカル座標へ(physics sensor使用)
-function World2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
-    local a, b, c, d, e, f, g, h, i, j, k, l, x, z, y, Lower
-	Wx = Wx - Px
-	Wy = Wy - Pz
-	Wz = Wz - Py
-	a = math.cos(Ez)*math.cos(Ey)
-	b = math.cos(Ez)*math.sin(Ey)*math.sin(Ex) - math.sin(Ez)*math.cos(Ex)
-	c = math.cos(Ez)*math.sin(Ey)*math.cos(Ex) + math.sin(Ez)*math.sin(Ex)
-	d = Wx
-	e = math.sin(Ez)*math.cos(Ey)
-	f = math.sin(Ez)*math.sin(Ey)*math.sin(Ex) + math.cos(Ez)*math.cos(Ex)
-	g = math.sin(Ez)*math.sin(Ey)*math.cos(Ex) - math.cos(Ez)*math.sin(Ex)
-	h = Wz
-	i = -math.sin(Ey)
-	j = math.cos(Ey)*math.sin(Ex)
-	k = math.cos(Ey)*math.cos(Ex)
-	l = Wy
-	Lower = ((a*f-b*e)*k + (c*e - a*g)*j + (b*g - c*f)*i)
-	x = 0
-	y = 0
-	z = 0
-	if Lower ~= 0 then
-		x = ((b*g - c*f)*l + (d*f - b*h)*k + (c*h - d*g)*j)/Lower
-		y = -((a*g - c*e)*l + (d*e - a*h)*k + (c*h - d*g)*i)/Lower
-		z = ((a*f - b*e)*l + (d*e - a*h)*j + (b*h - d*f)*i)/Lower
-	end
-	return x, z, y
-end
-
---ローカル座標からディスプレイ座標へ変換
-function Local2Display(Lx, Ly, Lz)
-    local Dx, Dy, drawable
-    Dx = w/2 + (Lx/Ly)*(h/2)/math.tan(fov_h/2)
-    Dy = h/2 - (Lz/Ly)*(h/2)/math.tan(fov_h/2)
-    drawable = Ly > 0
-    return Dx, Dy, drawable
-end
-
---ワールド直交座標からディスプレイ座標へ変換
-function WorldRect2Display(Wx, Wy, Wz, Ex, Ey, Ez)
-    local Lx, Ly, Lz, Dx, Dy, drawable
-
-    --ローカル座標へ変換
-    Lx, Ly, Lz = World2Local(Wx, Wy, Wz, Px, Py, Pz, Ex, Ey, Ez)
-    Lx, Ly, Lz = World2Local(Lx, Ly, Lz, 0, 0, 0, -seat_y, seat_x, 0)
-
-    --ディスプレイ座標へ変換
-    Dx, Dy, drawable = Local2Display(Lx, Ly, Lz)
-    
-    return Dx, Dy, drawable
-end
-
---描画可能判定
-function CanDraw(x, y)
-    return x >= 0 and x <= w and y >= 0 and y <= h
+--距離
+function distance3(a, b)
+    local dx, dy, dz = a[1] - b[1], a[2] - b[2], a[3] - b[3]
+    return math.sqrt(dx*dx + dy*dy + dz*dz)
 end
 
 --SRD3マーク描画用関数
 function drawSRD3(pixX, pixY, shapeNo, colorNo, addStaticNo, addDynamicNo, t)
-    local drawDottedLine, drawDottedRect, drawDottedTriangle, drawDottedCircle, drawTrueCircle, drawShape
-
-    --点線
-    function drawDottedLine(x1, y1, x2, y2)
-        local dx, dy, len, step, sx, sy, ex, ey
-        dx, dy = x2 - x1, y2 - y1
-        len = math.sqrt(dx^2 + dy^2)
-        dx, dy = dx / len, dy / len
-        step = 1
-        for i = 0, len, step*2 do
-            sx, sy = x1 + dx*i, y1 + dy*i
-            ex, ey = x1 + dx*(i + step), y1 + dy*(i + step)
-            if i + step < len then
-                screen.drawLine(sx, sy, ex, ey)
-            end
-        end
-    end
-    --点矩形
-    function drawDottedRect(x, y, w, h)
-        drawDottedLine(x, y, x, y + h + 2)
-        drawDottedLine(x, y, x + w + 2, y)
-        drawDottedLine(x + w, y + h, x, y + h)
-        drawDottedLine(x + w, y + h, x + w, y)
-    end
-    --点三角
-    function drawDottedTriangle(x1, y1, x2, y2, x3, y3)
-        drawDottedLine(x1, y1, x2, y2)
-        drawDottedLine(x2, y2, x3, y3)
-        drawDottedLine(x3, y3, x1, y1)
-    end
-    --点円
-    function drawDottedCircle(x, y, r)
-        local stepRad = math.atan(1, r)
-        for i = 0, pi2, stepRad*2 do
-            local x1, y1, x2, y2
-            x1 = x + r*math.cos(i)
-            y1 = y + r*math.sin(i)
-            x2 = x + r*math.cos(i + stepRad)
-            y2 = y + r*math.sin(i + stepRad)
-            screen.drawLine(x1, y1, x2, y2)
-        end
-    end
-
-    function drawTrueCircle(x, y, r)
-        local step = 10/360*pi2
-        for i = 0, pi2 - step, step do
-            local x1, y1, x2, y2
-            x1 = x + r*math.cos(i)
-            y1 = y + r*math.sin(i)
-            x2 = x + r*math.cos(i + step)
-            y2 = y + r*math.sin(i + step)
-            screen.drawLine(x1, y1, x2, y2)
-        end
-    end
-
+    local drawShape, drawAddStatic
     
     drawShape = function(x, y, r, dottedEnable)   --形
-        drawLine = dottedEnable and drawDottedLine or screen.drawLine
-        drawRect = dottedEnable and drawDottedRect or screen.drawRect
-        drawTriangle = dottedEnable and drawDottedTriangle or screen.drawTriangle
-        drawCircle = dottedEnable and drawDottedCircle or screen.drawCircle
+        local drawLine = dottedEnable and drawDottedLine or screen.drawLine
+        local drawRect = dottedEnable and drawDottedRect or screen.drawRect
+        local drawTriangle = dottedEnable and drawDottedTriangle or screen.drawTriangle
+        local drawCircle = dottedEnable and drawDottedCircle or screen.drawCircle
 
         if shapeNo == 0 then        --四角
             drawRect(x - r, y - r, r*2, r*2)
@@ -247,7 +137,7 @@ function drawSRD3(pixX, pixY, shapeNo, colorNo, addStaticNo, addDynamicNo, t)
     end
 
     --色設定
-    colorNoData = {
+    local colorNoData = {
         {0, 255, 0},
         {16, 16, 255},
         {255, 0, 0},
@@ -287,14 +177,9 @@ function drawSRD3(pixX, pixY, shapeNo, colorNo, addStaticNo, addDynamicNo, t)
 end
 
 function onTick()
-    Px = INN(27)
-    Py = INN(28)
-    Pz = INN(29)
-    Ex = INN(30)
-    Ey = INN(31)
-    Ez = INN(32)
-    seat_x = INN(9)*pi2
-    seat_y = INN(10)*pi2
+    seatQt = euler2Qt(INN(30), INN(31), INN(32))
+    pos = offset("Eye offset xyz", {INN(27), INN(29), INN(28)}, seatQt)
+    eyeQt = euler2Qt(-INN(10)*pi2, INN(9)*pi2, 0)
 
     delete_tick = PRN("Radar delete tick")
     dist_unit = PRN("Distance Units")
@@ -312,16 +197,14 @@ function onTick()
     end
 
     --データ取り込み
-    --data[ID]{x, y, z, t, shapeNo, colorNo, addStaticNo, addDynamicNo, drawTick}
+    --data[ID]{xyz, t, shapeNo, colorNo, addStaticNo, addDynamicNo, drawTick}
     for i = 0, 5 do
-        j = i > 1 and 2 or 0
+        local j = i > 1 and 2 or 0
         local rawID = INN(i*4 + 4 + j)
-        ID = rawID%1000
+        local ID = rawID%1000
         if ID ~= 0 then
             data[ID] = {
-                x = INN(i*4 + 1 + j),
-                y = INN(i*4 + 2 + j),
-                z = INN(i*4 + 3 + j),
+                xyz = {INN(i*4 + 1 + j), INN(i*4 + 2 + j), INN(i*4 + 3 + j)},
                 t = 0,
                 shapeNo = math.floor(rawID/(10^3))%10,
                 colorNo = math.floor(rawID/(10^4))%10,
@@ -340,30 +223,34 @@ function onTick()
     end
 
     --デバッグ用
-    OUN(30, #data)
+    local targetCount = 0
+    for _ in pairs(data) do
+        targetCount = targetCount + 1
+    end
+    OUN(30, targetCount)
 end
 
 function onDraw()
-    w = screen.getWidth()
-    h = screen.getHeight()
+    setParam(FOV_H)
 
     --レーダー反応描画
     for ID, tgt in pairs(data) do
-        x1, y1, drawable1 = WorldRect2Display(tgt.x, tgt.y, tgt.z, Ex, Ey, Ez)
+        local x1, y1, forward1 = localRect2Display(world2Local(tgt.xyz, pos, seatQt), eyeQt)
         x1 = math.floor(x1)
         y1 = math.floor(y1)
-        if drawable1 then
+        if forward1 then
             drawSRD3(x1, y1, tgt.shapeNo, tgt.colorNo, tgt.addStaticNo, tgt.addDynamicNo, tgt.drawTick)
 
             --ID
             if show_radar_id then
-                TGTid = tostring(ID)
+                local TGTid = tostring(ID)
                 screen.drawText(x1 + 1 - 2.5*#TGTid, y1 - 10, TGTid)
             end
 
             --距離数値
             if show_radar_dist then
-                tgt_dist = distance3(Px, Pz, Py, tgt.x, tgt.y, tgt.z)*dist_unit
+                local tgt_dist = distance3(pos, tgt.xyz)*dist_unit
+                local TGTd
                 if tgt_dist >= 10 then
                     TGTd = string.format("%.0f", math.floor(tgt_dist + 0.5))
                 else
@@ -374,6 +261,3 @@ function onDraw()
         end
     end
 end
-
-
-
