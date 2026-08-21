@@ -36,13 +36,14 @@ end
 ---@param radianBool boolean trueならラジアン、falseなら0~1の範囲
 ---@return number pitch ピッチ角
 ---@return number yaw ヨー角
+---@return number distance 距離
 function rect2Polar(xyz, radianBool)
     local x, y, z = TUP(xyz)
-    local pitch, yaw = math.atan(z, math.sqrt(x*x + y*y)), math.atan(x, y)
+    local pitch, yaw, distance = math.atan(z, math.sqrt(x*x + y*y)), math.atan(x, y), vecDist(xyz, ZERO3)
     if radianBool then
-        return pitch, yaw
+        return pitch, yaw, distance
     else
-        return pitch/pi2, yaw/pi2
+        return pitch/pi2, yaw/pi2, distance
     end
 end
 ---@endsection

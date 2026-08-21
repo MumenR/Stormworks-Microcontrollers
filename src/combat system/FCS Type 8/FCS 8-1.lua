@@ -89,6 +89,7 @@ require("math.coordTrans")
 require("math.filter")
 require("control.stabilizer")
 require("control.pid")
+require("control.cam")
 
 SEAT_STABI_T = 7.5
 SEAT_STABI_P = 8
@@ -104,10 +105,14 @@ TGT_PRED_DELAY = 0  --n[tick]後の未来位置を予測
 TRC_END_TICK = 200  --n[tick]以上検出しなかったら追尾終了
 TGT_RADIUS_GAIN = 1.05
 
+NO_TGT_DIST = 500   --レーザーが当たってないときの仮想距離
+
 gain1 = {0.1, 0.002, 0.00001}
 gain2 = {0.3, 0.01, 0.0005}
 
 SLERP_T = 0.05
+MAX_FOV = 2.2/2
+MIN_FOV = 0.025/2
 
 --関数
 do
@@ -123,8 +128,6 @@ do
     end
 end
 
-
-
 seatYawES, seatYawEP = 0, 0
 seatPitchES, seatPitchEP = 0, 0
 
@@ -133,8 +136,12 @@ pitchPrev, yawPrev = 0, 0
 seatLosQtPrev = {0, 0, 0, 1}
 lasDirec = {{0, 0, 0, 0, 0, 0, 0, 0}}
 lasQtBuf = {{0, 0, 0, 1}}
+losWxyz = {0, 0, 0}
 trackInPre = false
 seatResetPre = false
+scopePre = false
+zoomManu = 0
+zoomCtrl = 0
 isTracking = false
 is1P = false
 GNDCorrectionT = 0
@@ -161,14 +168,30 @@ function onTick()
 
         trackIn = INN(31)%10 == 1
         seatReset = INN(31)//10 == 1
-        isPower = INN(32) == 1
+        isScope = INN(31)//100 == 1
+        isPower = INN(31)//1000 == 1
+
+        --スコープ用
+        zoomIn = INN(32)%10 == 2
+        zoomOut = INN(32)%10 == 0
+        camPitchCtrl = INN(32)//10%10 - 1
+        camYawCtrl = INN(32)//100%10 - 1
+
+        CAM_SPEED_GAIN = PRN("Cam speed gain")
+        ZOOM_SPEED_GAIN = PRN("Zoom speed gain")
 
         vehicleCamMode = PRN("Vehicle Camera Mode")
         TGT_RADIUS0 = PRN("Target radius [m]")
 
+        MIN_FOV_CTRL = PRN("Cam min fov [rad]")/2
+        MAX_FOV_CTRL = PRN("Cam max fov [rad]")/2
+
         --視線の中心座標
         FPSPos = offset("FPS view offset", INN(19), INN(21), INN(20), seatQt)
         TPSPos = offset("TPS view offset", INN(19), INN(21), INN(20), seatQt)
+
+        camPos = offset("Cam offset", INN(1), INN(3), INN(2), lasQt)
+        lasPosPointer = offset("Laser offset Pointer", INN(1), INN(3), INN(2), lasQt)
 
         --レーザの座標
         for i = 1, 4 do
@@ -210,6 +233,7 @@ function onTick()
     --出力リセット
     for i = 1, 32 do
         OUN(i, 0)
+        OUB(i, false)
     end
 
     --追尾開始のパルス
@@ -220,7 +244,11 @@ function onTick()
     seatResetPulse = not seatResetPre and seatReset
     seatResetPre = seatReset
 
-    --シートピボットのヨー、向きたい方位角の計算
+    --スコープ使用時のパルス
+    scopePulse = not scopePre and isScope
+    scopePre = isScope
+
+    --シートピボットのヨー、砲塔正面方位角の計算
     do
         _, seatCntYaw = rect2Polar(world2Local(local2World({0, 1, 0}, ZERO3, seatQt), ZERO3, bodQt), false)
         _, turretAzi = rect2Polar(local2World({0, 1, 0}, ZERO3, lasQt), false)
@@ -247,10 +275,10 @@ function onTick()
             isFPS = is1P or vehicleCamMode == 2
             
             --視点からの距離を計算
-            pos = isFPS and FPSPos or TPSPos
+            pos = isScope and camPos or (isFPS and FPSPos or TPSPos)
             if lasDist[1] == 4000 then
                 if lasDist[2] == 4000 then
-                    losDist = 300
+                    losDist = NO_TGT_DIST
                 else
                     losDist = vecDist(lasPoint[2], pos)
                 end
@@ -258,15 +286,46 @@ function onTick()
                 losDist = vecDist(lasPoint[1], pos)
             end
 
-            --ワールド視線方向
-            if isFPS then     --一人称または固定の時
-                --ローカル座標系
-                losWxyz = local2World(polar2Rect(seatLosPitch, seatLosYaw, losDist, true), FPSPos, seatQt)
-            else              --水平固定または自由
-                --ワールド座標系でピッチのみ零点シフト
-                Wpi, Wya = rect2Polar(local2World({0, 1, 0}, ZERO3, seatLosQt), true)
-                losWxyz = vecAdd1(polar2Rect(seatLosPitch + Wpi, seatLosYaw + Wya, losDist, true), TPSPos)
+            --スコープの向き
+            if isScope then
+                --ズーム倍率計算
+                if zoomIn then
+                    zoomManu = clamp(zoomManu + ZOOM_SPEED_GAIN/60, 0, 1)
+                elseif zoomOut then
+                    zoomManu = clamp(zoomManu - ZOOM_SPEED_GAIN/60, 0, 1)
+                end
+                zoomCtrl, zoomRadian = calZoom(zoomManu, MIN_FOV_CTRL, MAX_FOV_CTRL, MIN_FOV, MAX_FOV)
+
+                if not isTracking then
+                    --スコープ方向初期値：視線方位角を維持、仰角はローカル水平にリセット
+                    if scopePulse then
+                        losLxyz = world2Local(losWxyz, camPos, lasQt)
+                        losWyz = {losLxyz[1], losLxyz[2], 0}
+                        losWPitch, losWYaw = rect2Polar(losWyz, false)
+                    end
+
+                    Lxyz = world2Local(polar2Rect(losWPitch, losWYaw, 1, false), ZERO3, lasQt)  --ローカル座標にして
+                    Lxyz = rotateRv(Lxyz, {camPitchCtrl, 0, -camYawCtrl}, CAM_SPEED_GAIN/60)    --回転
+
+                    Lpi, Lya = rect2Polar(Lxyz, false)    --極座標にし
+                    Lxyz = polar2Rect(clamp(Lpi, -0.25, 0.25), Lya, 1, false) --ピッチ角制限
+                    losWPitch, losWYaw = rect2Polar(local2World(Lxyz, ZERO3, lasQt), false) --ワールド座標に戻す
+
+                    --向くべき方向を計算
+                    losWxyz = vecAdd1(polar2Rect(losWPitch, losWYaw, 1e6, false), camPos)
+                end
+
+            else    --視点の向き
+                if isFPS then     --一人称または固定の時
+                    --普通のローカル座標系→ワールド座標系
+                    losWxyz = local2World(polar2Rect(seatLosPitch, seatLosYaw, losDist, true), FPSPos, seatQt)
+                else              --水平固定または自由
+                    --ワールド座標系でピッチのみ零点シフト→ワールド座標系
+                    Wpi, Wya = rect2Polar(local2World({0, 1, 0}, ZERO3, seatLosQt), true)
+                    losWxyz = vecAdd1(polar2Rect(seatLosPitch + Wpi, seatLosYaw + Wya, losDist, true), TPSPos)
+                end
             end
+
         end
 
         --レーザ方向
@@ -411,12 +470,7 @@ function onTick()
             end
         end
 
-        OUB(1, true)
-
-        OUB(10, isTracking)
-
-        OUN(31, seatYawControl)
-
+        --TRD出力
         for i = 1, 9 do
             OUN(i, TGT[i])
         end
@@ -430,26 +484,25 @@ function onTick()
         --カメラとレーザの方向と倍率
         --18~22
 
+        OUB(1, true)
+
+        OUB(10, isTracking)
+
+        OUN(31, seatYawControl)
+        OUN(32, zoomCtrl)
+
         --SRD3
         OUN(23, TGT[1])
         OUN(24, TGT[2])
         OUN(25, TGT[3])
         OUN(26, ID)
 
-        --レーザ方向の遅延
-        do
-            table.insert(lasDirec, copyTable(lasDirecSet))
-            table.insert(lasQtBuf, copyTable(lasQt))
-
-            if #lasDirec > LASER_DELAY then
-                table.remove(lasDirec, 1)
-                table.remove(lasQtBuf, 1)
-            end
-        end
     elseif t <= 5 then
         t = t + 1
         seatIdealYaw = 0
         seatTGTAzi = turretAzi
+        zoomManu = 0
+        zoomCtrl = 0
     end
 
     --シートピボットのPID制御
@@ -458,6 +511,17 @@ function onTick()
         seatYawControl = clamp(seatYawControl*SEAT_PIVOT, -10, 10)
         --nan対策
         seatYawControl = seatYawControl ~= seatYawControl and 0 or seatYawControl
+    end
+
+    --レーザ方向の遅延
+    do
+        table.insert(lasDirec, copyTable(lasDirecSet))
+        table.insert(lasQtBuf, copyTable(lasQt))
+
+        if #lasDirec > LASER_DELAY then
+            table.remove(lasDirec, 1)
+            table.remove(lasQtBuf, 1)
+        end
     end
     
     --一人称視点フラグ

@@ -21,6 +21,10 @@
             "path": "../src/combat system/Ballistic Calculator V5"
         },
         {
+            "name": "Ballistic Calculator V6",
+            "path": "../src/combat system/Ballistic Calculator V6"
+        },
+        {
             "name": "FCS Exchanger V1",
             "path": "../src/combat system/FCS Exchanger V1"
         },
@@ -78,7 +82,13 @@
         },
         {
             "name": "workspaces",
-            "path": "../workspaces"
+            "path": "."
         }
-    ]
+    ],
+    "settings": {
+        "files.autoSave": "afterDelay",
+        "lifeboatapi.stormworks.libs.libraryPaths": [
+            "C:\\Users\\PC_User\\OneDrive\\Stormworks\\Microcontrollers\\libs"
+        ]
+    }
 }
