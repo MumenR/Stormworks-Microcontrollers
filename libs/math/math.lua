@@ -25,10 +25,10 @@ function clamp2(x, min, max)
 end
 ---@endsection
 
----@section same_rotation
+---@section sameRotation
 ---@param x number 回転角度
 ---@return number answer 回転角度(-0.5~0.5)
-function same_rotation(x)
+function sameRotation(x)
     return (x + 0.5)%1 - 0.5
 end
 ---@endsection

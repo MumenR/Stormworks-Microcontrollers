@@ -6,7 +6,7 @@
 ---@param MIN_FOV number カメラ最小FOVラジアン値/2
 ---@param MAX_FOV number カメラ最大FOVラジアン値/2
 ---@return number control 0-1の制御用値
----@return number fovRad 描画計算用FOVラジアン値
+---@return number fovRad 描画計算用FOVラジアン値/2
 function calZoom(zoomManual, MIN_FOV_CTRL, MAX_FOV_CTRL, MIN_FOV, MAX_FOV)
     --入力値をラジアンに線形変換
     zoomRadManual = (MIN_FOV - MAX_FOV)*zoomManual + MAX_FOV

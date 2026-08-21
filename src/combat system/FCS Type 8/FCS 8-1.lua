@@ -16,10 +16,18 @@ do
 
     simulator:setProperty("FPS view offset", "0,0.25,1.45")
     simulator:setProperty("TPS view offset", "0,0.25,2")
+    simulator:setProperty("Cam offset", "0,0.5,0")
+    simulator:setProperty("Laser offset Pointer", "0,0.5,0")
     simulator:setProperty("Laser offset 1", "-0.5,0.5,-0.25")
     simulator:setProperty("Laser offset 2", "-0.25,0.5,-0.25")
     simulator:setProperty("Laser offset 3", "-0,0.5,-0.25")
     simulator:setProperty("Laser offset 4", "0.25,0.5,-0.25")
+    simulator:setProperty("Cam speed gain", 4)
+    simulator:setProperty("Zoom speed gain", 0.5)
+    simulator:setProperty("Vehicle Camera Mode", 2)
+    simulator:setProperty("Target radius [m]", 5)
+    simulator:setProperty("Cam min fov [rad]", 0.025)
+    simulator:setProperty("Cam max fov [rad]", 2.2)
 
     -- Runs every tick just before onTick; allows you to simulate the inputs changing
     ---@param simulator Simulator Use simulator:<function>() to set inputs etc.
@@ -65,13 +73,17 @@ do
         simulator:setInputNumber(25, math.sin(phase * 0.5) * 0.03)
         simulator:setInputNumber(26, math.sin(phase * 0.3) * 0.015)
 
-        -- Four valid laser ranges. Trigger tracking after initial buffers fill.
+        -- Four valid laser ranges.
         simulator:setInputNumber(27, 1200)
         simulator:setInputNumber(28, 1200)
         simulator:setInputNumber(29, 1200)
         simulator:setInputNumber(30, 1200)
-        simulator:setInputNumber(31, ticks == 10 and 1 or 0)
-        simulator:setInputNumber(32, 1)
+
+        -- Input 31: power after startup, then enable scope.
+        -- Input 32: neutral for 1 second, pitch down/up alternately, without zooming.
+        local pitchCommand = ticks % 240 < 120 and 0 or 2
+        simulator:setInputNumber(31, ticks <= 7 and 1000 or 1100)
+        simulator:setInputNumber(32, ticks <= 60 and 111 or 101 + pitchCommand * 10)
     end;
 end
 ---@endsection
@@ -93,7 +105,7 @@ require("control.cam")
 
 SEAT_STABI_T = 7.5
 SEAT_STABI_P = 8
-SEAT_STABI_D = 15
+SEAT_STABI_D = 5
 SEAT_PIVOT = 32/5
 
 LASER_STABI_T = 4
@@ -135,19 +147,21 @@ t = 0
 pitchPrev, yawPrev = 0, 0
 seatLosQtPrev = {0, 0, 0, 1}
 lasDirec = {{0, 0, 0, 0, 0, 0, 0, 0}}
+lasDirecSet = copyTable(lasDirec[1])    --出力するヨー、ピッチ
 lasQtBuf = {{0, 0, 0, 1}}
+lasQt = copyTable(lasQtBuf[1])
 losWxyz = {0, 0, 0}
 trackInPre = false
 seatResetPre = false
 scopePre = false
 zoomManu = 0
 zoomCtrl = 0
+zoomRadian = MAX_FOV
 isTracking = false
 is1P = false
 GNDCorrectionT = 0
 trackT = 0
 notHitT = 0
-lasDirecSet = {}    --出力するヨー、ピッチ
 lasPos = {}         --レーザ自身の座標
 
 function onTick()
@@ -167,9 +181,9 @@ function onTick()
         seatLosYaw, seatLosPitch = INN(25)*pi2, INN(26)*pi2
 
         trackIn = INN(31)%10 == 1
-        seatReset = INN(31)//10 == 1
-        isScope = INN(31)//100 == 1
-        isPower = INN(31)//1000 == 1
+        seatReset = INN(31)//10%10 == 1
+        isScope = INN(31)//100%10 == 1
+        isPower = INN(31)//1000%10 == 1
 
         --スコープ用
         zoomIn = INN(32)%10 == 2
@@ -186,12 +200,15 @@ function onTick()
         MIN_FOV_CTRL = PRN("Cam min fov [rad]")/2
         MAX_FOV_CTRL = PRN("Cam max fov [rad]")/2
 
+        spdUnit = PRN("Speed Units")
+        distUnit = PRN("Distance Units")
+
         --視線の中心座標
         FPSPos = offset("FPS view offset", INN(19), INN(21), INN(20), seatQt)
         TPSPos = offset("TPS view offset", INN(19), INN(21), INN(20), seatQt)
 
         camPos = offset("Cam offset", INN(1), INN(3), INN(2), lasQt)
-        lasPosPointer = offset("Laser offset Pointer", INN(1), INN(3), INN(2), lasQt)
+        ptlasPos = offset("Laser offset Pointer", INN(1), INN(3), INN(2), lasQt)
 
         --レーザの座標
         for i = 1, 4 do
@@ -265,7 +282,7 @@ function onTick()
             --Z軸単位ベクトル
             ex, ey, ez = TUP(world2Local({0, 0, 1}, ZERO3, bodQt))
             --t[tick]後のローカル未来位置へ
-            Lx, Ly, Lz = TUP(world2Local(rotateRv({math.sin(seatTGTAzi*pi2), math.cos(seatTGTAzi*pi2), 0}, bodWrv, SEAT_STABI_T), ZERO3, bodQt))
+            Lx, Ly, Lz = TUP(world2Local(rotateRv({math.sin(seatTGTAzi*pi2), math.cos(seatTGTAzi*pi2), 0}, vecMulScalar1(bodWrv, -1), SEAT_STABI_T), ZERO3, bodQt))
             --逆投影(?)しつつ極座標へ
             _, seatIdealYaw = rect2Polar({Lx - ex*Lz/ez, Ly - ey*Lz/ez, 0}, false)
         end
@@ -299,20 +316,20 @@ function onTick()
                 if not isTracking then
                     --スコープ方向初期値：視線方位角を維持、仰角はローカル水平にリセット
                     if scopePulse then
-                        losLxyz = world2Local(losWxyz, camPos, lasQt)
-                        losWyz = {losLxyz[1], losLxyz[2], 0}
-                        losWPitch, losWYaw = rect2Polar(losWyz, false)
+                        scopeLxyz = world2Local(losWxyz, camPos, lasQt)
+                        scopeWxyz = local2World({scopeLxyz[1], scopeLxyz[2], 0}, ZERO3, lasQt)
                     end
 
-                    Lxyz = world2Local(polar2Rect(losWPitch, losWYaw, 1, false), ZERO3, lasQt)  --ローカル座標にして
-                    Lxyz = rotateRv(Lxyz, {camPitchCtrl, 0, -camYawCtrl}, CAM_SPEED_GAIN/60)    --回転
+                    scopeLxyz = rotateRv(world2Local(scopeWxyz, ZERO3, lasQt), {camPitchCtrl, 0, -camYawCtrl}, zoomRadian*CAM_SPEED_GAIN/60)    --回転
 
-                    Lpi, Lya = rect2Polar(Lxyz, false)    --極座標にし
-                    Lxyz = polar2Rect(clamp(Lpi, -0.25, 0.25), Lya, 1, false) --ピッチ角制限
-                    losWPitch, losWYaw = rect2Polar(local2World(Lxyz, ZERO3, lasQt), false) --ワールド座標に戻す
+                    Lpi, Lya = rect2Polar(scopeLxyz, false)                         --極座標にし
+                    Lxyz = polar2Rect(clamp(Lpi, -1/8, 1/8), Lya, losDist, false)   --ピッチ角制限と距離の設定
+                    scopeWxyz = local2World(Lxyz, ZERO3, lasQt)                     --ワールド座標に戻す
 
                     --向くべき方向を計算
-                    losWxyz = vecAdd1(polar2Rect(losWPitch, losWYaw, 1e6, false), camPos)
+                    losWxyz = vecAdd1(scopeWxyz, camPos)
+                else
+                    scopeWxyz = vecSub1({TGT[1], TGT[2], TGT[3]}, camPos)
                 end
 
             else    --視点の向き
@@ -455,18 +472,31 @@ function onTick()
                 TGT = {losWxyz[1], losWxyz[2], losWxyz[3], 0, 0, 0, 0, 0, 0}
                 ID = 609001
 
+                lasTGTxyz = copyTable(losWxyz)
+
                 --レーザ１は直接ターゲットを補足
                 --レーザ２は追尾に備えてターゲット下の地面を補足しておく
                 --それ以外はニュートラル
-                if lasDist[1] == 4000 and lasDist[2] == 4000 then
-                    losWxyz = local2World(polar2Rect(seatLosPitch, seatLosYaw, 10^5, true), FPSPos, seatQt)
+                if lasDist[1] == 4000 and lasDist[2] == 4000 and not isScope then
+                    lasTGTxyz = local2World(polar2Rect(seatLosPitch, seatLosYaw, 10^5, true), FPSPos, seatQt)
                 end
 
-                las1pitch, las1yaw = stabilizer2(lasPos[1], lasQt, lasLv, lasWrv, losWxyz, ZERO3, LASER_STABI_T)
-                theta = math.atan(lasPos[2][2] - losWxyz[2], lasPos[2][1] - losWxyz[1])
+                las1pitch, las1yaw = stabilizer2(lasPos[1], lasQt, lasLv, lasWrv, lasTGTxyz, ZERO3, LASER_STABI_T)
+                theta = math.atan(lasPos[2][2] - lasTGTxyz[2], lasPos[2][1] - lasTGTxyz[1])
                 gndOfst = {math.cos(theta)*TGT_RADIUS0*2, math.sin(theta)*TGT_RADIUS0*2, -TGT_RADIUS0}
-                las2pitch, las2yaw = stabilizer2(lasPos[2], lasQt, lasLv, lasWrv, vecAdd1(losWxyz, gndOfst), ZERO3, LASER_STABI_T)
+                las2pitch, las2yaw = stabilizer2(lasPos[2], lasQt, lasLv, lasWrv, vecAdd1(lasTGTxyz, gndOfst), ZERO3, LASER_STABI_T)
                 lasDirecSet = {las1yaw, las1pitch, las2yaw, las2pitch, 0, 0, 0, 0}
+            end
+        end
+
+        --カメラ・ポインティングレーザ方向
+        do
+            if isTracking then
+                camPitch, camYaw = stabilizer2(camPos, lasQt, lasLv, lasWrv, {TGT[1], TGT[2], TGT[3]}, {TGT[4], TGT[5], TGT[6]}, LASER_STABI_T)
+                ptlasPitch, ptlasYaw = stabilizer2(ptlasPos, lasQt, lasLv, lasWrv, {TGT[1], TGT[2], TGT[3]}, {TGT[4], TGT[5], TGT[6]}, LASER_STABI_T)
+            else
+                camPitch, camYaw = stabilizer2(camPos, lasQt, ZERO3, lasWrv, losWxyz, ZERO3, LASER_STABI_T)
+                ptlasPitch, ptlasYaw = stabilizer2(ptlasPos, lasQt, ZERO3, lasWrv, losWxyz, ZERO3, LASER_STABI_T)
             end
         end
 
@@ -481,8 +511,11 @@ function onTick()
             OUN(9 + i, -lasDirecSet[i]*8)
         end
 
-        --カメラとレーザの方向と倍率
-        --18~22
+        --カメラとレーザの方向
+        OUN(18, -ptlasYaw*8)
+        OUN(19, -ptlasPitch*8)
+        OUN(20, camYaw*8)
+        OUN(21, camPitch*8)
 
         OUB(1, true)
 
@@ -507,7 +540,7 @@ function onTick()
 
     --シートピボットのPID制御
     do
-        seatYawControl, seatYawES, seatYawEP = PID(SEAT_STABI_P, 0, SEAT_STABI_D, 0, -same_rotation(seatIdealYaw - seatCntYaw), seatYawES, seatYawEP, -100, 100)
+        seatYawControl, seatYawES, seatYawEP = PID(SEAT_STABI_P, 0, SEAT_STABI_D, 0, -sameRotation(seatIdealYaw - seatCntYaw), seatYawES, seatYawEP, -100, 100)
         seatYawControl = clamp(seatYawControl*SEAT_PIVOT, -10, 10)
         --nan対策
         seatYawControl = seatYawControl ~= seatYawControl and 0 or seatYawControl
@@ -531,7 +564,29 @@ end
 function onDraw()
     is1P = true
 
-    --for debug
-    screen.setColor(0, 255, 0)
-    screen.drawText(0, 0, debug)
+    w, h = screen.getWidth(), screen.getHeight()
+
+    --スコープ使用時の描画(WT風照準線)
+    if isScope then
+        --十字
+        screen.setColor(10, 10, 10)
+        screen.drawLine(w/2, 0, w/2, h)
+        screen.drawLine(0, h/2, w, h/2)
+
+        --視野角1度ごとに目盛
+
+
+        --ターゲット距離
+        screen.setColor(0, 255, 0)
+        dist = vecDist({TGT[1], TGT[2], TGT[3]}, camPos)*distUnit
+
+        screen.drawText(w/2 + 3, h/2 - 15, math.floor(dist + 0.5))
+        
+        if isTracking then
+            screen.drawText(w/2 + 3, h/2 + 10, "TRACKING")
+
+            spd = vecDist({TGT[4], TGT[5], TGT[6]}, ZERO3)*spdUnit*60
+            screen.drawText(w/2 + 3, h/2 + 17, "V = "..math.floor(spd + 0.5))
+        end
+    end
 end

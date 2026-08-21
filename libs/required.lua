@@ -30,8 +30,8 @@ ZERO3 = {0, 0, 0}
 ---@endsection
 
 ---@section copyTable
----@param x table コピー元のテーブル
----@return table copy コピーしたテーブル
+---@param x any コピー元のテーブル
+---@return any copy コピーしたテーブル
 function copyTable(x)
     return {TUP(x)}
 end
